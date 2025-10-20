@@ -104,6 +104,9 @@ global._midici.ev.on('inUMP',(o)=>{
 		if(!win || !win.webContents)return;
 		win.webContents.send('asynchronous-reply', 'controlUpdate', o);
 	});
+    if(global.indexWindow && global.indexWindow.webContents){
+        global.indexWindow.webContents.send('asynchronous-reply','inUMP', o);
+    }
 });
 
 const {getMIDI1Devices, load_umpVirtualMIDI} = require("./libs/UMPMIDI1");
@@ -120,6 +123,9 @@ for(let i=0 ; i<global.configSetting.numberMIDI1UMPs;i++){
 			if(!win || !win.webContents)return;
 			win.webContents.send('asynchronous-reply', 'controlUpdate', o);
 		});
+        if(global.indexWindow && global.indexWindow.webContents){
+            global.indexWindow.webContents.send('asynchronous-reply','inUMP', o);
+        }
 	});
 }
 
