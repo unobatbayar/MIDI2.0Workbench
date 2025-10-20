@@ -351,14 +351,28 @@ function executeStep6() {
 }
 
 function executeStep7() {
-    showStepStatus('Step 7: Use MIDI', 'Ready to use MIDI! All setup steps completed.', 'info');
+    showStepStatus('Step 7: Use MIDI', 'Sending/receiving MIDI… waiting for activity.', 'info');
     
     $('#step7Button').removeClass('btn-outline-primary').addClass('btn-primary');
     $('#step7Button').prop('disabled', true);
     
-    setTimeout(() => {
-        showStepStatus('Step 7: Use MIDI', '🎉 All MIDI 2.0 setup steps completed! You can now use MIDI messages, profiles, and all MIDI-CI features.', 'success');
-    }, 1000);
+    let activity = false;
+    const activityHandler = (event, arg, xData) => {
+        if(arg==='inUMP' || arg==='controlUpdate'){
+            activity = true;
+            showStepStatus('Step 7: Use MIDI', 'MIDI traffic detected. You are ready to use System/Channel Voice messages.', 'success');
+            ipcRenderer.removeListener('asynchronous-reply', activityHandler);
+        }
+    };
+    ipcRenderer.on('asynchronous-reply', activityHandler);
+    
+    // If no traffic within 8s, show warning
+    setTimeout(()=>{
+        if(!activity){
+            showStepStatus('Step 7: Use MIDI', 'No MIDI traffic detected yet. Try sending a note or system message.', 'warning');
+            ipcRenderer.removeListener('asynchronous-reply', activityHandler);
+        }
+    }, 8000);
 }
 
 function showStepStatus(title, message, type) {
