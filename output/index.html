@@ -16,6 +16,48 @@
 		.gbName {
 			float: right;
 		}
+		
+		/* MIDI 2.0 Step Buttons Styling */
+		.btn-group-vertical .btn {
+			border-radius: 0.5rem;
+			margin-bottom: 0.5rem;
+			transition: all 0.3s ease;
+			text-align: left;
+			padding: 1rem;
+		}
+		
+		.btn-group-vertical .btn:hover {
+			transform: translateY(-2px);
+			box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+		}
+		
+		.btn-group-vertical .btn i {
+			margin-right: 0.5rem;
+			width: 1.2em;
+		}
+		
+		.btn-group-vertical .btn:disabled {
+			opacity: 0.7;
+			cursor: not-allowed;
+		}
+		
+		#stepStatus {
+			border-radius: 0.5rem;
+			border: none;
+			box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+		}
+		
+		.alert-success {
+			background-color: #d4edda;
+			border-color: #c3e6cb;
+			color: #155724;
+		}
+		
+		.alert-info {
+			background-color: #d1ecf1;
+			border-color: #bee5eb;
+			color: #0c5460;
+		}
 	</style>
 </head>
 <body>
@@ -67,19 +109,47 @@
 
 	</div>
 	<div class="row">
-<!--		<div class="input-group">-->
-<!--			<button id="discoverAllUMPMIDICI" type="button"-->
-<!--					class="form-control btn btn-primary btn-lg"-->
-<!--					data-tooltip="tooltip"-->
-<!--					title="Go thorough all UMP Endpoints connected and try to find any MIDI-CI enabled devices."-->
-<!--			>-->
-<!--				Rediscover UMP MIDI Endpoints and MIDI-CI Devices-->
-<!--			</button>-->
-
-<!--		</div>-->
-<!--		<br/>-->
-<!--		<hr/>-->
-
+		<div class="col-12">
+			<h4 class="text-center mb-3">MIDI 2.0 Setup Steps</h4>
+			<div class="btn-group-vertical w-100" role="group">
+				<button id="step1Button" type="button" class="btn btn-outline-primary btn-lg mb-2" 
+						data-tooltip="tooltip" title="Step 1: Connect Devices - Get Transport layer device descriptors">
+					<i class="fas fa-plug"></i> Step 1: Connect Devices
+				</button>
+				<button id="step2Button" type="button" class="btn btn-outline-secondary btn-lg mb-2" 
+						data-tooltip="tooltip" title="Step 2: UMP Endpoint Discovery - Endpoint Discovery, Device Identity, etc.">
+					<i class="fas fa-search"></i> Step 2: UMP Endpoint Discovery
+				</button>
+				<button id="step3Button" type="button" class="btn btn-outline-secondary btn-lg mb-2" 
+						data-tooltip="tooltip" title="Step 3: Select Protocol - Stream Configuration Request/Notification">
+					<i class="fas fa-cogs"></i> Step 3: Select Protocol
+				</button>
+				<button id="step4Button" type="button" class="btn btn-outline-secondary btn-lg mb-2" 
+						data-tooltip="tooltip" title="Step 4: Function Blocks Discovery - Function Block Discovery, Info, Name">
+					<i class="fas fa-puzzle-piece"></i> Step 4: Function Blocks Discovery
+				</button>
+				<button id="step5Button" type="button" class="btn btn-outline-secondary btn-lg mb-2" 
+						data-tooltip="tooltip" title="Step 5: MIDI-CI Discovery - MIDI-CI Discovery and Reply">
+					<i class="fas fa-handshake"></i> Step 5: MIDI-CI Discovery
+				</button>
+				<button id="step6Button" type="button" class="btn btn-outline-secondary btn-lg mb-2" 
+						data-tooltip="tooltip" title="Step 6: Use MIDI-CI - Profile Configuration, Property Exchange, Process Inquiry">
+					<i class="fas fa-exchange-alt"></i> Step 6: Use MIDI-CI
+				</button>
+				<button id="step7Button" type="button" class="btn btn-outline-secondary btn-lg mb-2" 
+						data-tooltip="tooltip" title="Step 7: Use MIDI - System Messages, Channel Voice Messages">
+					<i class="fas fa-music"></i> Step 7: Use MIDI
+				</button>
+			</div>
+		</div>
+	</div>
+	<div class="row mt-3">
+		<div class="col-12">
+			<div id="stepStatus" class="alert alert-info" style="display: none;">
+				<h5><i class="fas fa-info-circle"></i> Step Status</h5>
+				<div id="stepStatusContent"></div>
+			</div>
+		</div>
 	</div>
 	<div  id="umpDevices" class="row p-3"></div>
 

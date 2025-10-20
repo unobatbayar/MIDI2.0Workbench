@@ -316,6 +316,61 @@ ipcMain.on('asynchronous-message', (event, arg,xData) => {
 				//global.umpDevices[umpDev].getFunctionBlocks();
 			});
 			break;
+		case 'triggerMIDICIDiscovery':
+			// Trigger MIDI-CI discovery for all UMP devices
+			Object.keys(global.umpDevices).map(umpDev=>{
+				if (global.umpDevices[umpDev].remoteEndpoint && global.umpDevices[umpDev].remoteEndpoint.blocks) {
+					global.umpDevices[umpDev].remoteEndpoint.blocks.map(fb => {
+						if (fb.active && fb.direction === 0b11) {
+							// Send MIDI-CI discovery for each bidirectional function block
+							whichGlobalMIDICI(umpDev).sendDiscovery(umpDev, fb.firstGroup);
+						}
+					});
+				}
+			});
+			break;
+		case 'triggerProtocolNegotiation':
+			// Trigger protocol negotiation for all discovered MIDI-CI devices
+			Object.keys(global.umpDevices).map(umpDev=>{
+				const midici = whichGlobalMIDICI(umpDev);
+				if (midici && midici.remoteDevices) {
+					Object.keys(midici.remoteDevices).map(muid => {
+						if (midici.getData(muid, '/supported/protocol')) {
+							// Start protocol negotiation for this device
+							midici.protocolNegotiationStart(muid);
+						}
+					});
+				}
+			});
+			break;
+		case 'triggerFunctionBlockDiscovery':
+			// Trigger function block discovery for all UMP devices
+			Object.keys(global.umpDevices).map(umpDev=>{
+				if (global.umpDevices[umpDev].remoteEndpoint && global.umpDevices[umpDev].remoteEndpoint.blocks) {
+					// Function blocks are already discovered as part of UMP endpoint discovery
+					// This step ensures all function block information is retrieved
+					global.umpDevices[umpDev].reportEndpoint();
+				}
+			});
+			break;
+		case 'activateMIDICIFeatures':
+			// Activate MIDI-CI features for all discovered devices
+			Object.keys(global.umpDevices).map(umpDev=>{
+				const midici = whichGlobalMIDICI(umpDev);
+				if (midici && midici.remoteDevices) {
+					Object.keys(midici.remoteDevices).map(muid => {
+						// Trigger profile capability inquiry
+						if (midici.getData(muid, '/supported/profile')) {
+							midici.profileInquiryStart(muid);
+						}
+						// Trigger property exchange capability inquiry
+						if (midici.getData(muid, '/supported/pe')) {
+							midici.peCapabilityStart(muid);
+						}
+					});
+				}
+			});
+			break;
 		case 'openMIDIEndpoint':{
 			let found = false;
 			global._editWin.map(editWin=>{

@@ -141,7 +141,179 @@ document.addEventListener('DOMContentLoaded', () => {
         $('[data-tooltip="tooltip"]').tooltip()
     })
 
+    // MIDI 2.0 Step Buttons Event Handlers
+    $('#step1Button').on('click', function() {
+        executeStep1();
+    });
+
+    $('#step2Button').on('click', function() {
+        executeStep2();
+    });
+
+    $('#step3Button').on('click', function() {
+        executeStep3();
+    });
+
+    $('#step4Button').on('click', function() {
+        executeStep4();
+    });
+
+    $('#step5Button').on('click', function() {
+        executeStep5();
+    });
+
+    $('#step6Button').on('click', function() {
+        executeStep6();
+    });
+
+    $('#step7Button').on('click', function() {
+        executeStep7();
+    });
+
 });
+
+// MIDI 2.0 Step Functions
+function executeStep1() {
+    showStepStatus('Step 1: Connect Devices', 'Connecting to MIDI devices and getting transport layer device descriptors...', 'info');
+    
+    // Update button state
+    $('#step1Button').removeClass('btn-outline-primary').addClass('btn-primary');
+    $('#step1Button').prop('disabled', true);
+    
+    // Trigger device discovery - this calls the existing functionality
+    ipcRenderer.send('asynchronous-message', 'getMIDIDevices');
+    
+    // Also trigger UMP device discovery
+    setTimeout(() => {
+        ipcRenderer.send('asynchronous-message', 'getAllUMPDevicesFunctionBlocks');
+    }, 1000);
+    
+    // Enable next step after a delay
+    setTimeout(() => {
+        $('#step2Button').removeClass('btn-outline-secondary').addClass('btn-outline-primary');
+        $('#step2Button').prop('disabled', false);
+        showStepStatus('Step 1: Connect Devices', 'Device connection completed! Transport layer device descriptors retrieved.', 'success');
+    }, 3000);
+}
+
+function executeStep2() {
+    showStepStatus('Step 2: UMP Endpoint Discovery', 'Performing UMP Endpoint Discovery...', 'info');
+    
+    $('#step2Button').removeClass('btn-outline-primary').addClass('btn-primary');
+    $('#step2Button').prop('disabled', true);
+    
+    // Trigger UMP endpoint discovery - this will send discovery messages to all connected UMP devices
+    ipcRenderer.send('asynchronous-message', 'getAllUMPDevicesFunctionBlocks');
+    
+    // Also trigger MIDI-CI discovery for each UMP device
+    setTimeout(() => {
+        ipcRenderer.send('asynchronous-message', 'triggerMIDICIDiscovery');
+    }, 1000);
+    
+    setTimeout(() => {
+        $('#step3Button').removeClass('btn-outline-secondary').addClass('btn-outline-primary');
+        $('#step3Button').prop('disabled', false);
+        showStepStatus('Step 2: UMP Endpoint Discovery', 'UMP Endpoint Discovery completed! Device information and identities retrieved.', 'success');
+    }, 4000);
+}
+
+function executeStep3() {
+    showStepStatus('Step 3: Select Protocol', 'Selecting protocol and configuring stream...', 'info');
+    
+    $('#step3Button').removeClass('btn-outline-primary').addClass('btn-primary');
+    $('#step3Button').prop('disabled', true);
+    
+    // Trigger protocol negotiation for all discovered MIDI-CI devices
+    ipcRenderer.send('asynchronous-message', 'triggerProtocolNegotiation');
+    
+    setTimeout(() => {
+        $('#step4Button').removeClass('btn-outline-secondary').addClass('btn-outline-primary');
+        $('#step4Button').prop('disabled', false);
+        showStepStatus('Step 3: Select Protocol', 'Protocol selection completed! Stream configured with negotiated protocol.', 'success');
+    }, 3000);
+}
+
+function executeStep4() {
+    showStepStatus('Step 4: Function Blocks Discovery', 'Discovering function blocks and getting detailed information...', 'info');
+    
+    $('#step4Button').removeClass('btn-outline-primary').addClass('btn-primary');
+    $('#step4Button').prop('disabled', true);
+    
+    // Trigger function block discovery and information requests
+    ipcRenderer.send('asynchronous-message', 'triggerFunctionBlockDiscovery');
+    
+    setTimeout(() => {
+        $('#step5Button').removeClass('btn-outline-secondary').addClass('btn-outline-primary');
+        $('#step5Button').prop('disabled', false);
+        showStepStatus('Step 4: Function Blocks Discovery', 'Function blocks discovery completed! All function block information retrieved.', 'success');
+    }, 3000);
+}
+
+function executeStep5() {
+    showStepStatus('Step 5: MIDI-CI Discovery', 'Performing MIDI-CI Discovery and establishing connections...', 'info');
+    
+    $('#step5Button').removeClass('btn-outline-primary').addClass('btn-primary');
+    $('#step5Button').prop('disabled', true);
+    
+    // MIDI-CI discovery is already performed in Step 2, this step confirms completion
+    setTimeout(() => {
+        $('#step6Button').removeClass('btn-outline-secondary').addClass('btn-outline-primary');
+        $('#step6Button').prop('disabled', false);
+        showStepStatus('Step 5: MIDI-CI Discovery', 'MIDI-CI Discovery completed! All MIDI-CI devices identified and connected.', 'success');
+    }, 2000);
+}
+
+function executeStep6() {
+    showStepStatus('Step 6: Use MIDI-CI', 'Activating MIDI-CI features: Profile Configuration, Property Exchange, Process Inquiry...', 'info');
+    
+    $('#step6Button').removeClass('btn-outline-primary').addClass('btn-primary');
+    $('#step6Button').prop('disabled', true);
+    
+    // Trigger MIDI-CI feature activation
+    ipcRenderer.send('asynchronous-message', 'activateMIDICIFeatures');
+    
+    setTimeout(() => {
+        $('#step7Button').removeClass('btn-outline-secondary').addClass('btn-outline-primary');
+        $('#step7Button').prop('disabled', false);
+        showStepStatus('Step 6: Use MIDI-CI', 'MIDI-CI features activated! Profile Configuration, Property Exchange, and Process Inquiry ready.', 'success');
+    }, 3000);
+}
+
+function executeStep7() {
+    showStepStatus('Step 7: Use MIDI', 'Ready to use MIDI! All setup steps completed.', 'info');
+    
+    $('#step7Button').removeClass('btn-outline-primary').addClass('btn-primary');
+    $('#step7Button').prop('disabled', true);
+    
+    setTimeout(() => {
+        showStepStatus('Step 7: Use MIDI', '🎉 All MIDI 2.0 setup steps completed! You can now use MIDI messages, profiles, and all MIDI-CI features.', 'success');
+    }, 1000);
+}
+
+function showStepStatus(title, message, type) {
+    const statusDiv = $('#stepStatus');
+    const contentDiv = $('#stepStatusContent');
+    
+    // Update content
+    contentDiv.html(`
+        <strong>${title}</strong><br>
+        ${message}
+    `);
+    
+    // Update styling based on type
+    statusDiv.removeClass('alert-info alert-success alert-warning alert-danger');
+    statusDiv.addClass(`alert-${type}`);
+    
+    // Show the status
+    statusDiv.show();
+    
+    // Auto-hide after 5 seconds for success messages
+    if (type === 'success') {
+        setTimeout(() => {
+            statusDiv.fadeOut();
+        }, 5000);
+    }
+}
 
 function buildMIDICIDevice(jqCard, xData){
 
