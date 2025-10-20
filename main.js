@@ -336,8 +336,10 @@ ipcMain.on('asynchronous-message', (event, arg,xData) => {
 				if (midici && midici.remoteDevices) {
 					Object.keys(midici.remoteDevices).map(muid => {
 						if (midici.getData(muid, '/supported/protocol')) {
-							// Start protocol negotiation for this device
-							midici.protocolNegotiationStart(muid);
+							// Start protocol negotiation for this device and signal renderer
+							midici.protocolNegotiationStart(muid, ()=>{
+								if(global.indexWindow) global.indexWindow.webContents.send('asynchronous-reply','protocolNegotiationComplete');
+							}, undefined);
 						}
 					});
 				}
