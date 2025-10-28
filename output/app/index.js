@@ -223,10 +223,24 @@ function executeStep1() {
     // Event-driven success/failure
     let step1Done = false;
     const step1Handler = (event, arg, xData) => {
-        if(arg==='MIDIDevices' || arg==='umpDev'){
-            step1Done = true;
-            showStepStatus('Step 1: Connect Devices', 'Device connection completed! Transport layer device descriptors retrieved.', 'success');
-            ipcRenderer.removeListener('asynchronous-reply', step1Handler);
+        if(arg==='MIDIDevices'){
+            // Check if there are actual MIDI devices
+            const hasMidiDevices = xData && (
+                (xData.midiDevices && (xData.midiDevices.in.length > 0 || xData.midiDevices.out.length > 0)) ||
+                (xData.serialDevices && xData.serialDevices.length > 0)
+            );
+            if(hasMidiDevices){
+                step1Done = true;
+                showStepStatus('Step 1: Connect Devices', 'Device connection completed! Transport layer device descriptors retrieved.', 'success');
+                ipcRenderer.removeListener('asynchronous-reply', step1Handler);
+            }
+        } else if(arg==='umpDev'){
+            // Check if xData has actual device information
+            if(xData && xData.endpoint){
+                step1Done = true;
+                showStepStatus('Step 1: Connect Devices', 'Device connection completed! Transport layer device descriptors retrieved.', 'success');
+                ipcRenderer.removeListener('asynchronous-reply', step1Handler);
+            }
         }
     };
     ipcRenderer.on('asynchronous-reply', step1Handler);
