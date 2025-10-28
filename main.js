@@ -379,6 +379,52 @@ ipcMain.on('asynchronous-message', (event, arg,xData) => {
 				}
 			});
 			break;
+		case 'activateMIDICIFeaturesWithConfig':
+			// Activate MIDI-CI features with specific configuration (group, channel, or function block)
+			const config = xData || {};
+			
+			Object.keys(global.umpDevices).map(umpDev=>{
+				const midici = whichGlobalMIDICI(umpDev);
+				if (midici && midici.remoteDevices) {
+					Object.keys(midici.remoteDevices).map(muid => {
+						// Check if this device matches the filter criteria
+						let shouldProcess = true;
+						
+						if (config.type === 'channel') {
+							// Filter by group and channel
+							const deviceGroup = midici.remoteDevicesInternal[muid].group;
+							if (deviceGroup !== config.group - 1) {
+								shouldProcess = false;
+							}
+							// Note: Channel filtering would need additional data structure
+						} else if (config.type === 'group') {
+							// Filter by group only
+							const deviceGroup = midici.remoteDevicesInternal[muid].group;
+							if (deviceGroup !== config.group - 1) {
+								shouldProcess = false;
+							}
+						} else if (config.type === 'functionBlock') {
+							// Filter by function block
+							const fbIdx = midici.getData(muid, '/fbIdx');
+							if (fbIdx !== config.functionBlock) {
+								shouldProcess = false;
+							}
+						}
+						
+						if (shouldProcess) {
+							// Trigger profile capability inquiry
+							if (midici.getData(muid, '/supported/profile')) {
+								midici.profileInquiryStart(muid);
+							}
+							// Trigger property exchange capability inquiry
+							if (midici.getData(muid, '/supported/pe')) {
+								midici.peCapabilityStart(muid);
+							}
+						}
+					});
+				}
+			});
+			break;
 		case 'openMIDIEndpoint':{
 			let found = false;
 			global._editWin.map(editWin=>{
