@@ -195,7 +195,7 @@ function createWindow () {
 }
 
 ipcMain.on('asynchronous-message', (event, arg,xData) => {
-	//console.log(arg) ;
+	console.log('IPC message received:', arg, xData ? 'with data' : 'no data');
 
 	// if(ipcMainProcess[arg]){
 	// 	ipcMainProcess[arg]({
@@ -318,46 +318,407 @@ ipcMain.on('asynchronous-message', (event, arg,xData) => {
 					global.indexWindow.webContents.send('asynchronous-reply',
 						'umpDev', {umpDev, endpoint: global.umpDevices[umpDev].remoteEndpoint});
 				}
-				//global.umpDevices[umpDev].getEndpointInfo();
-				//global.umpDevices[umpDev].getFunctionBlocks();
+			});
+			break;
+		case 'triggerUMPEndpointDiscovery':
+			// Step 2: UMP Endpoint Discovery (per MIDI 2.0 spec)
+			// Sends: Endpoint Discovery (Get MIDI Endpoint Info - 0x000) requesting all notifications
+			// Receives: Endpoint Info Notification (0x1), Device Identity Notification (0x2),
+			//           Endpoint Name Notification (0x3), Product Instance Id Notification (0x4)
+			console.log('=== Step 2: UMP Endpoint Discovery (MIDI 2.0 Spec) ===');
+			const allUmpDevices = Object.keys(global.umpDevices || {});
+			const montageDevices = allUmpDevices.filter(key => {
+				const dev = global.umpDevices[key];
+				const name = (dev && dev.name) ? dev.name.toUpperCase() : '';
+				const endpointName = (dev && dev.remoteEndpoint && dev.remoteEndpoint.name) ? dev.remoteEndpoint.name.toUpperCase() : '';
+				return name.includes('MONTAGE') || endpointName.includes('MONTAGE');
+			});
+			
+			const devicesToUse = montageDevices.length > 0 ? montageDevices : allUmpDevices;
+			
+			if(devicesToUse.length === 0){
+				if(global.indexWindow){
+					global.indexWindow.webContents.send('asynchronous-reply', 'umpEndpointDiscoveryError', {
+						error: 'No UMP devices found. Complete Step 1 first.'
+					});
+				}
+				break;
+			}
+			
+			// Send Endpoint Discovery (0x000) requesting all notifications
+			devicesToUse.forEach(umpDev => {
+				const dev = global.umpDevices[umpDev];
+				if(dev && dev.getUMPDataAndBlocks){
+					console.log('Step 2: Sending Endpoint Discovery (0x000) for', umpDev, '- requesting Info, Identity, Name, Product Instance Id notifications');
+					dev.getUMPDataAndBlocks();
+					
+					// Verify notifications received after delay
+					setTimeout(() => {
+						const checkDev = global.umpDevices[umpDev];
+						if(checkDev && checkDev.remoteEndpoint){
+							const blocks = checkDev.remoteEndpoint.blocks || [];
+							const rawBlocks = checkDev.remoteEndpoint.rawFunctionBlocks || [];
+							const hasInfo = checkDev.remoteEndpoint.midi2Supp?.umpEPInfoReply;
+							const hasIdentity = checkDev.remoteEndpoint.midi2Supp?.umpEPIdentityReply;
+							const hasName = checkDev.remoteEndpoint.midi2Supp?.umpEPNameReply;
+							const hasProdId = checkDev.remoteEndpoint.midi2Supp?.umpEPPIdReply;
+							
+							console.log('Step 2: Received notifications for', umpDev, '- Info:', hasInfo, 'Identity:', hasIdentity, 'Name:', hasName, 'ProdId:', hasProdId);
+							
+							if(blocks.length > 0 || rawBlocks.length > 0 || hasInfo || hasIdentity || hasName){
+								if(global.indexWindow){
+									global.indexWindow.webContents.send('asynchronous-reply', 'umpEndpointBlocksCached', {
+										umpDev: umpDev,
+										blockCount: blocks.length,
+										rawBlockCount: rawBlocks.length,
+										hasInfo: hasInfo,
+										hasIdentity: hasIdentity,
+										hasName: hasName,
+										hasProdId: hasProdId
+									});
+								}
+							}
+						}
+					}, 2000);
+				} else if(dev && dev.midiOutFunc){
+					// Fallback: send directly
+					console.log('Step 2: Sending Endpoint Discovery (0x000) directly for', umpDev);
+					const {getMIDIEndpointUMP} = require('./libs/umpDevices');
+					dev.midiOutFunc(umpDev, getMIDIEndpointUMP);
+				}
 			});
 			break;
 		case 'triggerMIDICIDiscovery':
-			// Trigger MIDI-CI discovery for all UMP devices
-			Object.keys(global.umpDevices).map(umpDev=>{
-				if (global.umpDevices[umpDev].remoteEndpoint && global.umpDevices[umpDev].remoteEndpoint.blocks) {
-					global.umpDevices[umpDev].remoteEndpoint.blocks.map(fb => {
-						if (fb.active && fb.direction === 0b11) {
-							// Send MIDI-CI discovery for each bidirectional function block
-							whichGlobalMIDICI(umpDev).sendDiscovery(umpDev, fb.firstGroup);
-						}
+			// Step 5: MIDI-CI Discovery Transaction (per MIDI 2.0 spec Section 4.1)
+			// Uses information from Steps 1-4: function blocks, groups, device info
+			// Initiator sends Discovery message (0x70) as UMP Type 3 (SysEx wrapped in UMP)
+			// Responder replies with Discovery Reply (0x71) as UMP Type 3
+			console.log('=== Step 5: MIDI-CI Discovery (MIDI 2.0 Spec Section 4.1) ===');
+			const allMIDICIDevices = Object.keys(global.umpDevices || {});
+			const montageMIDICIDevices = allMIDICIDevices.filter(key => {
+				const dev = global.umpDevices[key];
+				const name = (dev && dev.name) ? dev.name.toUpperCase() : '';
+				const endpointName = (dev && dev.remoteEndpoint && dev.remoteEndpoint.name) ? dev.remoteEndpoint.name.toUpperCase() : '';
+				return name.includes('MONTAGE') || endpointName.includes('MONTAGE');
+			});
+			
+			const midiciDevicesToUse = montageMIDICIDevices.length > 0 ? montageMIDICIDevices : allMIDICIDevices;
+			
+			if(midiciDevicesToUse.length === 0){
+				if(global.indexWindow){
+					global.indexWindow.webContents.send('asynchronous-reply', 'midiciDiscoveryError', {
+						error: 'No UMP devices found. Complete Step 1 and Step 2 first.'
 					});
 				}
+				break;
+			}
+			
+			// Use reportBlocks mechanism - it automatically sends Discovery on correct groups
+			// This uses the function block information from Steps 2 and 4
+			let discoverySentCount = 0;
+			midiciDevicesToUse.forEach(umpDev => {
+				const dev = global.umpDevices[umpDev];
+				if(!dev || !dev.remoteEndpoint){
+					console.error('Step 5: Device or remoteEndpoint missing for', umpDev);
+					return;
+				}
+				
+				const blocks = dev.remoteEndpoint.blocks || [];
+				const rawBlocks = dev.remoteEndpoint.rawFunctionBlocks || [];
+				const midici = whichGlobalMIDICI(umpDev);
+				
+				if(!midici || !midici.midiOutFunc){
+					console.error('Step 5: MIDI-CI instance or midiOutFunc missing for', umpDev);
+					return;
+				}
+				
+				// Use blocks from Step 2/4 - if we have rawFunctionBlocks, use those, otherwise use blocks
+				const blocksToUse = rawBlocks.length > 0 ? rawBlocks : blocks;
+				
+				if(blocksToUse.length === 0){
+					console.warn('Step 5: No function blocks found for', umpDev, '- sending Discovery on group 0');
+					// Send on group 0 as fallback
+					midici.sendDiscovery(umpDev, 0);
+					discoverySentCount++;
+					return;
+				}
+				
+				// Reset sentDiscovery flags so we can send discovery again
+				blocksToUse.forEach(fb => {
+					if(fb && typeof fb === 'object'){
+						fb.sentDiscovery = false;
+					}
+				});
+				
+				// Per MIDI 2.0 spec: Send Discovery on each bidirectional active function block's first group
+				// Use the same mechanism as reportBlocks
+				let discoveryGroupCheck = [];
+				blocksToUse.forEach(fb => {
+					if(fb.active && fb.direction === 0b11){
+						const group = fb.firstGroup !== undefined ? fb.firstGroup : 0;
+						if(discoveryGroupCheck.indexOf(group) === -1){
+							console.log('Step 5: Sending MIDI-CI Discovery (0x70) as UMP on group', group, 'for', umpDev, 'Function Block', fb.fbIdx);
+							console.log('Step 5: Using function block info from Steps 2/4:', {
+								fbIdx: fb.fbIdx,
+								name: fb.name,
+								firstGroup: fb.firstGroup,
+								numberGroups: fb.numberGroups,
+								direction: fb.direction,
+								active: fb.active,
+								ciVersion: fb.ciVersion
+							});
+							// This will create SysEx and convert to UMP Type 3, then send via midiOutFunc
+							midici.sendDiscovery(umpDev, group);
+							discoveryGroupCheck.push(group);
+							discoverySentCount++;
+						}
+					}
+				});
+				
+				// If no bidirectional blocks, send Discovery on group 0
+				if(discoverySentCount === 0){
+					console.log('Step 5: No bidirectional blocks found, sending Discovery on group 0 for', umpDev);
+					midici.sendDiscovery(umpDev, 0);
+					discoverySentCount++;
+				}
 			});
+			
+			console.log('Step 5: Sent', discoverySentCount, 'MIDI-CI Discovery message(s) as UMP. Waiting for Discovery Reply (0x71)...');
+			
+			// Wait for Discovery Reply messages (0x71) which create entries in remoteDevices
+			setTimeout(() => {
+				let discoveredCount = 0;
+				const discoveredMUIDs = [];
+				midiciDevicesToUse.forEach(umpDev => {
+					const midici = whichGlobalMIDICI(umpDev);
+					if(midici && midici.remoteDevices){
+						const muids = Object.keys(midici.remoteDevices);
+						discoveredCount += muids.length;
+						muids.forEach(muid => {
+							const deviceInfo = midici.getData(muid, '/device') || {};
+							discoveredMUIDs.push({
+								muid: muid,
+								umpDev: umpDev,
+								group: midici.remoteDevicesInternal[muid]?.group || 0,
+								manufacturer: deviceInfo.manufacturer,
+								model: deviceInfo.modelId,
+								fbIdx: midici.getData(muid, '/fbIdx')
+							});
+						});
+					}
+				});
+				
+				if(global.indexWindow){
+					if(discoveredCount > 0){
+						global.indexWindow.webContents.send('asynchronous-reply', 'midiciDiscoveryComplete', {
+							count: discoveredCount,
+							muids: discoveredMUIDs
+						});
+					} else {
+						global.indexWindow.webContents.send('asynchronous-reply', 'midiciDiscoveryError', {
+							error: `Sent ${discoverySentCount} Discovery message(s) as UMP but received no Discovery Reply (0x71). Make sure the device supports MIDI-CI and is connected.`
+						});
+					}
+				}
+			}, 3000);
 			break;
 		case 'triggerProtocolNegotiation':
-			// Trigger protocol negotiation for all discovered MIDI-CI devices
-			Object.keys(global.umpDevices).map(umpDev=>{
+			// Step 3: Select Protocol (per MIDI 2.0 spec)
+			// 1. MIDI-CI Protocol Negotiation (0x10/0x11) - negotiate which protocol to use
+			// 2. UMP Stream Configuration Request (0x5) - configure stream with protocol and JR timestamps
+			console.log('=== Step 3: Select Protocol (MIDI 2.0 Spec) ===');
+			const allProtocolDevices = Object.keys(global.umpDevices || {});
+			const montageProtocolDevices = allProtocolDevices.filter(key => {
+				const dev = global.umpDevices[key];
+				const name = (dev && dev.name) ? dev.name.toUpperCase() : '';
+				return name.includes('MONTAGE');
+			});
+			const protocolDevicesToUse = montageProtocolDevices.length > 0 ? montageProtocolDevices : allProtocolDevices;
+			
+			if(protocolDevicesToUse.length === 0){
+				if(global.indexWindow){
+					global.indexWindow.webContents.send('asynchronous-reply','protocolNegotiationError', {
+						error: 'No UMP devices found. Make sure your MIDI 2.0 device is connected.'
+					});
+				}
+				break;
+			}
+			
+			let protocolNegotiationCount = 0;
+			let streamConfigCount = 0;
+			let totalMIDICIDevices = 0;
+			
+			protocolDevicesToUse.forEach(umpDev => {
+				const dev = global.umpDevices[umpDev];
+				if(!dev || !dev.midiOutFunc){
+					console.log('Step 3: Device', umpDev, 'has no midiOutFunc');
+					return;
+				}
+				
+				// Part 1: UMP Stream Configuration Request (0x5) - configure protocol and JR timestamps
+				// Format: Type F (0xF), status 0x5, protocol in byte 1, JR flags in bits 30-31
+				// Protocol: 0x01 = MIDI 1.0, 0x02 = MIDI 2.0
+				// JR Receive (bit 30): 1 = on, 0 = off
+				// JR Transmit (bit 31): 1 = on, 0 = off
+				console.log('Step 3: Sending UMP Stream Configuration Request (0x5) for', umpDev);
+				// Request MIDI 2.0 with JR timestamps on
+				const streamConfigUMP = [
+					((0xF << 28) >>> 0) + (0x005 << 16) + (0x02 << 8) + (0x03), // Protocol 0x02 (MIDI 2.0), JR RX=1, JR TX=1
+					0, 0, 0
+				];
+				dev.midiOutFunc(umpDev, streamConfigUMP);
+				streamConfigCount++;
+				console.log('Step 3: Sent Stream Configuration Request - Protocol: MIDI 2.0, JR Timestamps: ON');
+				
+				// Part 2: MIDI-CI Protocol Negotiation (0x10) - if MIDI-CI devices are discovered
 				const midici = whichGlobalMIDICI(umpDev);
 				if (midici && midici.remoteDevices) {
-					Object.keys(midici.remoteDevices).map(muid => {
-						if (midici.getData(muid, '/supported/protocol')) {
-							// Start protocol negotiation for this device and signal renderer
-							midici.protocolNegotiationStart(muid, ()=>{
-								if(global.indexWindow) global.indexWindow.webContents.send('asynchronous-reply','protocolNegotiationComplete');
-							}, undefined);
+					const muids = Object.keys(midici.remoteDevices);
+					totalMIDICIDevices += muids.length;
+					
+					muids.forEach(muid => {
+						// Reset the completion flag so we can negotiate again
+						if(midici.remoteDevicesInternal[muid]){
+							midici.remoteDevicesInternal[muid].protocolNegotiationComplete = false;
 						}
+						protocolNegotiationCount++;
+						console.log('Step 3: Sending MIDI-CI Protocol Negotiation (0x10) for MUID', '0x' + parseInt(muid).toString(16).toUpperCase());
+						midici.protocolNegotiationStart(muid, ()=>{
+							const protocolInfo = {
+								muid: muid,
+								protocols: [],
+								streamConfig: {
+									protocol: 'MIDI 2.0',
+									jrTimestamps: 'ON'
+								}
+							};
+							if(midici.getData(muid, '/umpmidi10')) protocolInfo.protocols.push('MIDI 1.0');
+							if(midici.getData(muid, '/umpmidi10mixed')) protocolInfo.protocols.push('MIDI 1.0 + Mixed');
+							if(midici.getData(muid, '/umpmidi10jr')) protocolInfo.protocols.push('MIDI 1.0 + JR');
+							if(midici.getData(muid, '/umpmidi20')) protocolInfo.protocols.push('MIDI 2.0');
+							if(midici.getData(muid, '/umpmidi20jr')) protocolInfo.protocols.push('MIDI 2.0 + JR');
+							if(midici.getData(muid, '/umpPacket')) protocolInfo.currentProtocol = 'UMP';
+							if(midici.getData(muid, '/midi1Packet')) protocolInfo.currentProtocol = 'MIDI 1.0';
+							
+							if(global.indexWindow) global.indexWindow.webContents.send('asynchronous-reply','protocolNegotiationComplete', protocolInfo);
+						}, undefined);
 					});
 				}
 			});
+			
+			console.log('Step 3: Sent', streamConfigCount, 'Stream Configuration Request(s),', protocolNegotiationCount, 'MIDI-CI Protocol Negotiation(s)');
+			
+			// Wait for Stream Configuration Reply (0x6) and Protocol Negotiation Reply (0x11)
+			setTimeout(() => {
+				let successCount = 0;
+				const protocolInfo = [];
+				
+				protocolDevicesToUse.forEach(umpDev => {
+					const dev = global.umpDevices[umpDev];
+					if(dev && dev.remoteEndpoint){
+						// Check if stream configuration was received
+						if(dev.remoteEndpoint.midi2On || dev.remoteEndpoint.midi1On){
+							successCount++;
+						}
+					}
+					
+					// Get protocol negotiation results from MIDI-CI devices
+					const midici = whichGlobalMIDICI(umpDev);
+					if(midici && midici.remoteDevices){
+						Object.keys(midici.remoteDevices).forEach(muid => {
+							const info = {
+								muid: muid,
+								umpDev: umpDev,
+								protocols: [],
+								currentProtocol: null,
+								streamConfig: {
+									protocol: dev.remoteEndpoint?.midi2On ? 'MIDI 2.0' : (dev.remoteEndpoint?.midi1On ? 'MIDI 1.0' : 'Unknown'),
+									jrTimestamps: dev.remoteEndpoint?.jrrxSupported || dev.remoteEndpoint?.jrtxSupported ? 'ON' : 'OFF'
+								}
+							};
+							
+							if(midici.getData(muid, '/umpmidi10')) info.protocols.push('MIDI 1.0');
+							if(midici.getData(muid, '/umpmidi10mixed')) info.protocols.push('MIDI 1.0 + Mixed');
+							if(midici.getData(muid, '/umpmidi10jr')) info.protocols.push('MIDI 1.0 + JR');
+							if(midici.getData(muid, '/umpmidi20')) info.protocols.push('MIDI 2.0');
+							if(midici.getData(muid, '/umpmidi20jr')) info.protocols.push('MIDI 2.0 + JR');
+							if(midici.getData(muid, '/umpPacket')) info.currentProtocol = 'MIDI 2.0';
+							if(midici.getData(muid, '/midi1Packet')) info.currentProtocol = 'MIDI 1.0';
+							
+							protocolInfo.push(info);
+						});
+					}
+				});
+				
+				if(global.indexWindow){
+					if(protocolNegotiationCount === 0 && streamConfigCount === 0){
+						global.indexWindow.webContents.send('asynchronous-reply','protocolNegotiationError', {
+							error: 'No devices found to configure. Complete Step 1, 2, and 5 first.'
+						});
+					} else if(protocolNegotiationCount === 0 && totalMIDICIDevices === 0){
+						// Stream config sent but no MIDI-CI devices
+						if(successCount > 0){
+							global.indexWindow.webContents.send('asynchronous-reply','protocolNegotiationComplete', {
+								streamConfig: {
+									protocol: 'MIDI 2.0',
+									jrTimestamps: 'ON',
+									configured: successCount
+								}
+							});
+						} else {
+							global.indexWindow.webContents.send('asynchronous-reply','protocolNegotiationError', {
+								error: 'Stream Configuration Request sent but no reply received. No MIDI-CI devices discovered (complete Step 5 first).'
+							});
+						}
+					} else if(protocolInfo.length > 0){
+						// Send protocol negotiation results with Montage's reply
+						global.indexWindow.webContents.send('asynchronous-reply','protocolNegotiationComplete', {
+							protocols: protocolInfo,
+							streamConfig: {
+								protocol: successCount > 0 ? 'MIDI 2.0' : 'Unknown',
+								jrTimestamps: 'ON',
+								configured: successCount
+							}
+						});
+					}
+				}
+			}, 3000);
 			break;
 		case 'triggerFunctionBlockDiscovery':
-			// Trigger function block discovery for all UMP devices
-			Object.keys(global.umpDevices).map(umpDev=>{
-				if (global.umpDevices[umpDev].remoteEndpoint && global.umpDevices[umpDev].remoteEndpoint.blocks) {
-					// Function blocks are already discovered as part of UMP endpoint discovery
-					// This step ensures all function block information is retrieved
-					global.umpDevices[umpDev].reportEndpoint();
+			// Step 4: Function Blocks Discovery (per MIDI 2.0 spec)
+			// Sends: Function Block Discovery (Get Function Block Info - 0x010)
+			// Receives: Function Block Info Notification (0x11), Function Block Name Notification (0x012)
+			console.log('=== Step 4: Function Blocks Discovery (MIDI 2.0 Spec) ===');
+			const allFBDevices = Object.keys(global.umpDevices || {});
+			const montageFBDevices = allFBDevices.filter(key => {
+				const dev = global.umpDevices[key];
+				const name = (dev && dev.name) ? dev.name.toUpperCase() : '';
+				return name.includes('MONTAGE');
+			});
+			const fbDevicesToUse = montageFBDevices.length > 0 ? montageFBDevices : allFBDevices;
+			
+			if(fbDevicesToUse.length === 0){
+				if(global.indexWindow){
+					global.indexWindow.webContents.send('asynchronous-reply', 'functionBlockDiscoveryError', {
+						error: 'No UMP devices found. Complete Step 1 and Step 2 first.'
+					});
+				}
+				break;
+			}
+			
+			fbDevicesToUse.forEach(umpDev => {
+				const dev = global.umpDevices[umpDev];
+				if(dev && dev.midiOutFunc){
+					const {getFBUMP} = require('./libs/umpDevices');
+					// Send Function Block Discovery (0x010) for all function blocks (0xFF)
+					console.log('Step 4: Sending Function Block Discovery (0x010) for', umpDev);
+					dev.midiOutFunc(umpDev, getFBUMP(0xFF));
+				}
+				// Report endpoint to update UI with discovered function blocks
+				if(dev && dev.reportEndpoint){
+					setTimeout(() => {
+						dev.reportEndpoint();
+					}, 500);
 				}
 			});
 			break;
@@ -380,8 +741,11 @@ ipcMain.on('asynchronous-message', (event, arg,xData) => {
 			});
 			break;
 		case 'activateMIDICIFeaturesWithConfig':
-			// Activate MIDI-CI features with specific configuration (group, channel, or function block)
+			// Step 6: Use MIDI-CI (per MIDI 2.0 spec)
+			// Sends: Profile Configuration Messages, Property Exchange Messages, Process Inquiry Messages
+			console.log('=== Step 6: Use MIDI-CI (MIDI 2.0 Spec) ===');
 			const config = xData || {};
+			const activatedFeatures = [];
 			
 			Object.keys(global.umpDevices).map(umpDev=>{
 				const midici = whichGlobalMIDICI(umpDev);
@@ -396,7 +760,6 @@ ipcMain.on('asynchronous-message', (event, arg,xData) => {
 							if (deviceGroup !== config.group - 1) {
 								shouldProcess = false;
 							}
-							// Note: Channel filtering would need additional data structure
 						} else if (config.type === 'group') {
 							// Filter by group only
 							const deviceGroup = midici.remoteDevicesInternal[muid].group;
@@ -412,18 +775,48 @@ ipcMain.on('asynchronous-message', (event, arg,xData) => {
 						}
 						
 						if (shouldProcess) {
-							// Trigger profile capability inquiry
+							const features = [];
+							// 1. Profile Configuration Messages
 							if (midici.getData(muid, '/supported/profile')) {
+								console.log('Step 6: Sending Profile Configuration inquiry for MUID', '0x' + parseInt(muid).toString(16).toUpperCase());
 								midici.profileInquiryStart(muid);
+								features.push('Profile Configuration');
 							}
-							// Trigger property exchange capability inquiry
+							// 2. Property Exchange Messages
 							if (midici.getData(muid, '/supported/pe')) {
+								console.log('Step 6: Sending Property Exchange capability inquiry for MUID', '0x' + parseInt(muid).toString(16).toUpperCase());
 								midici.peCapabilityStart(muid);
+								features.push('Property Exchange');
+							}
+							// 3. Process Inquiry Messages
+							if (midici.getData(muid, '/supported/procInq')) {
+								console.log('Step 6: Sending Process Inquiry capability inquiry for MUID', '0x' + parseInt(muid).toString(16).toUpperCase());
+								midici.piCapabilityStart(muid);
+								features.push('Process Inquiry');
+							}
+							if(features.length > 0){
+								const targetInfo = config.type === 'channel' ? `Group ${config.group}, Ch ${config.channel}` :
+									config.type === 'group' ? `Group ${config.group}` :
+									config.type === 'functionBlock' ? `FB ${config.functionBlock}` : 'All';
+								activatedFeatures.push(`${targetInfo}: ${features.join(', ')}`);
 							}
 						}
 					});
 				}
 			});
+			
+			if(global.indexWindow){
+				if(activatedFeatures.length > 0){
+					global.indexWindow.webContents.send('asynchronous-reply', 'midiciFeaturesActivated', {
+						features: activatedFeatures,
+						config: config
+					});
+				} else {
+					global.indexWindow.webContents.send('asynchronous-reply', 'midiciFeaturesError', {
+						error: 'No MIDI-CI features available. Complete Step 5 (MIDI-CI Discovery) first and ensure device supports Profile Configuration, Property Exchange, or Process Inquiry.'
+					});
+				}
+			}
 			break;
 		case 'openMIDIEndpoint':{
 			let found = false;

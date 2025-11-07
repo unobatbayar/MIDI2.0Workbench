@@ -25,7 +25,14 @@ midi2usb.setRecvMIDI((umpDev,umpArr)=>{
 });
 
 midi2usb.setNewDeviceAlert((umpDev,m2)=>{
+    console.log('setNewDeviceAlert called with umpDev:', umpDev, 'm2:', m2);
+    const originalUmpDev = umpDev;
     umpDev = "USB"+umpDev;
+    // Ensure m2.devId is set correctly - it should match the original umpDev (device ID)
+    if(!m2.devId){
+        m2.devId = originalUmpDev;
+    }
+    console.log('Adding device with umpDev:', umpDev, 'devId:', m2.devId);
     addDev(umpDev,m2);
 });
 
@@ -35,6 +42,22 @@ midi2usb.setRemoveDeviceAlert((umpDev)=>{
 });
 
 function addDev(umpDev,m2){
+    console.log('addDev called for:', umpDev, 'clientName:', m2.clientName, 'has usbDetails:', !!m2.usbDetails);
+    
+    // Ensure we have blocks even if not provided
+    if(!m2.blocks || m2.blocks.length === 0){
+        // Create a default function block if none provided
+        m2.blocks = [{
+            fbIdx: 0,
+            name: m2.clientName || 'Default',
+            firstGroup: 0,
+            numberGroups: 16,
+            direction: 0b11, // bidirectional
+            active: true,
+            isMIDI1: false,
+            ciVersion: 2
+        }];
+    }
 
     const newDev = addUMPDevice(umpDev,{
         name:m2.clientName,
@@ -43,8 +66,8 @@ function addDev(umpDev,m2){
             name: m2.clientName,
             blocks: m2.blocks ||[],
             usbDetails: m2.usbDetails|| {},
-            manufacturer: m2.usbDetails?.iManufacturer||null,
-            model: m2.usbDetails?.iProduct||null,
+            manufacturer: m2.usbDetails?.iManufacturer || m2.manufacturer || null,
+            model: m2.usbDetails?.iProduct || m2.clientName || null,
             midi2Supp: {
                 transUSBMIDI2:true
             }
@@ -136,10 +159,31 @@ function addDev(umpDev,m2){
 
                 child.stdin.uncork();
             }else{
-                midi2usb.sendMIDI(m2.devId,ump);
+                // Send UMP via native module
+                // m2.devId should be the original device ID (before "USB" prefix)
+                const deviceId = m2.devId;
+                if(deviceId !== undefined && deviceId !== null){
+                    try {
+                        console.log('UMPusb.midiOutFunc: Sending UMP to device ID:', deviceId, 'UMP packets:', ump.length);
+                        console.log('UMPusb.midiOutFunc: First UMP packet:', ump.length > 0 ? '0x' + ump[0].toString(16).toUpperCase().padStart(8,'0') : 'none');
+                        midi2usb.sendMIDI(deviceId, ump);
+                        console.log('UMPusb.midiOutFunc: sendMIDI call completed');
+                    } catch(e) {
+                        console.error('UMPusb.midiOutFunc: ERROR sending UMP to device:', deviceId, e);
+                        console.error('Error stack:', e.stack);
+                    }
+                } else {
+                    console.warn('UMPusb.midiOutFunc: Cannot send UMP: devId is undefined for device:', umpDev, 'm2:', m2);
+                }
             }
 
+            // Log UMP to debug screen
             sendOutUMPBrokenUp(ump,0,(umpSplit,group)=>{
+                console.log('UMPusb.midiOutFunc: Logging UMP to debug screen', {
+                    umpDev: umpDev,
+                    group: group,
+                    umpPacket: '0x' + umpSplit[0].toString(16).toUpperCase().padStart(8,'0')
+                });
                 d.msg('ump',umpSplit,'out',umpDev, group);
             });
 

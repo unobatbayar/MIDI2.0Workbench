@@ -210,6 +210,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // MIDI 2.0 Step Functions
 function executeStep1() {
+    console.log('=== executeStep1 called ===');
     showStepStatus('Step 1: Connect Devices', 'Connecting to MIDI devices and getting transport layer device descriptors...', 'info');
     
     // Trigger device discovery - this calls the existing functionality
@@ -220,54 +221,168 @@ function executeStep1() {
         ipcRenderer.send('asynchronous-message', 'getAllUMPDevicesFunctionBlocks');
     }, 1000);
     
-    // Event-driven success/failure
+    // Event-driven success/failure - only show success if UMP device is detected
     let step1Done = false;
+    let devicesFound = [];
+    let umpDevicesFound = [];
+    let midi1DevicesFound = [];
+    
     const step1Handler = (event, arg, xData) => {
         if(arg==='MIDIDevices'){
-            // Check if there are actual MIDI devices
-            const hasMidiDevices = xData && (
+            // Track MIDI 1.0 devices (but don't show success yet - need UMP device)
+            if(xData && (
                 (xData.midiDevices && (xData.midiDevices.in.length > 0 || xData.midiDevices.out.length > 0)) ||
                 (xData.serialDevices && xData.serialDevices.length > 0)
-            );
-            if(hasMidiDevices){
-                step1Done = true;
-                showStepStatus('Step 1: Connect Devices', 'Device connection completed! Transport layer device descriptors retrieved.', 'success');
-                ipcRenderer.removeListener('asynchronous-reply', step1Handler);
+            )){
+                if(xData.midiDevices){
+                    if(xData.midiDevices.in && xData.midiDevices.in.length > 0){
+                        xData.midiDevices.in.forEach(dev => {
+                            const name = (typeof dev === 'object' && dev.inName) ? dev.inName : (typeof dev === 'string' ? dev : 'Unknown');
+                            midi1DevicesFound.push(`IN: ${name}`);
+                            devicesFound.push(`IN: ${name}`);
+                        });
+                    }
+                    if(xData.midiDevices.out && xData.midiDevices.out.length > 0){
+                        xData.midiDevices.out.forEach(dev => {
+                            const name = (typeof dev === 'string') ? dev : (dev.name || 'Unknown');
+                            midi1DevicesFound.push(`OUT: ${name}`);
+                            devicesFound.push(`OUT: ${name}`);
+                        });
+                    }
+                }
+                if(xData.serialDevices && xData.serialDevices.length > 0){
+                    xData.serialDevices.forEach(dev => {
+                        midi1DevicesFound.push(`Serial: ${dev.name || dev}`);
+                        devicesFound.push(`Serial: ${dev.name || dev}`);
+                    });
+                }
             }
         } else if(arg==='umpDev'){
-            // Check if xData has actual device information
+            // UMP device found - this is what we need for success
             if(xData && xData.endpoint){
+                const endpoint = xData.endpoint;
+                const deviceInfo = [];
+                if(endpoint.name) deviceInfo.push(`UMP Device: ${endpoint.name}`);
+                if(endpoint.manufacturer) deviceInfo.push(`Manufacturer: ${endpoint.manufacturer}`);
+                if(endpoint.model) deviceInfo.push(`Model: ${endpoint.model}`);
+                if(endpoint.blocks && endpoint.blocks.length > 0){
+                    deviceInfo.push(`${endpoint.blocks.length} Function Block(s)`);
+                }
+                // Add UMP device to the list
+                if(xData.umpDev){
+                    umpDevicesFound.push(endpoint.name || xData.umpDev);
+                    devicesFound.push(`UMP: ${endpoint.name || xData.umpDev}`);
+                }
                 step1Done = true;
-                showStepStatus('Step 1: Connect Devices', 'Device connection completed! Transport layer device descriptors retrieved.', 'success');
-                ipcRenderer.removeListener('asynchronous-reply', step1Handler);
+                const infoText = deviceInfo.length > 0 ? ` Retrieved: ${deviceInfo.join(', ')}` : '';
+                showStepStatus('Step 1: Connect Devices', `Device connection completed! Transport layer device descriptors retrieved.${infoText}`, 'success');
+                // Don't remove listener yet - might get more UMP devices
             }
         }
     };
     ipcRenderer.on('asynchronous-reply', step1Handler);
     setTimeout(() => {
         if(!step1Done){
-            showStepStatus('Step 1: Connect Devices', 'No devices detected. Please check connections and try again.', 'danger');
+            // No UMP device found
+            if(midi1DevicesFound.length > 0){
+                // MIDI 1.0 devices found but no UMP
+                const deviceList = midi1DevicesFound.length > 0 ? ` Found: ${midi1DevicesFound.join(', ')}` : '';
+                showStepStatus('Step 1: Connect Devices', `MIDI 1.0 devices detected but no USB MIDI 2.0 device found.${deviceList} MIDI 2.0 features require a USB MIDI 2.0 device.`, 'warning');
+            } else {
+                // No devices at all
+                showStepStatus('Step 1: Connect Devices', 'No devices detected. Please check connections and try again.', 'danger');
+            }
+            ipcRenderer.removeListener('asynchronous-reply', step1Handler);
+        } else {
+            // UMP device found - show success
+            const hasUMP = umpDevicesFound.length > 0;
+            if(hasUMP){
+                const deviceList = devicesFound.length > 0 ? ` Found: ${devicesFound.join(', ')}` : '';
+                showStepStatus('Step 1: Connect Devices', `Device connection completed! Transport layer device descriptors retrieved.${deviceList}`, 'success');
+            } else {
+                // This shouldn't happen if step1Done is true, but just in case
+                const deviceList = midi1DevicesFound.length > 0 ? ` Found: ${midi1DevicesFound.join(', ')}` : '';
+                showStepStatus('Step 1: Connect Devices', `MIDI 1.0 devices detected but no USB MIDI 2.0 device found.${deviceList} MIDI 2.0 features require a USB MIDI 2.0 device.`, 'warning');
+            }
             ipcRenderer.removeListener('asynchronous-reply', step1Handler);
         }
     }, 6000);
 }
 
 function executeStep2() {
-    showStepStatus('Step 2: UMP Endpoint Discovery', 'Performing UMP Endpoint Discovery...', 'info');
+    console.log('=== executeStep2 called ===');
+    showStepStatus('Step 2: UMP Endpoint Discovery', 'Sending Endpoint Discovery (0x000) requesting Info, Identity, Name, and Product Instance Id notifications...', 'info');
     
-    // Trigger UMP endpoint discovery - this will send discovery messages to all connected UMP devices
-    ipcRenderer.send('asynchronous-message', 'getAllUMPDevicesFunctionBlocks');
+    // Step 2: UMP Endpoint Discovery (per MIDI 2.0 spec)
+    // Sends: Endpoint Discovery (0x000)
+    // Receives: Endpoint Info Notification (0x1), Device Identity Notification (0x2),
+    //           Endpoint Name Notification (0x3), Product Instance Id Notification (0x4)
+    console.log('Sending IPC: triggerUMPEndpointDiscovery');
+    ipcRenderer.send('asynchronous-message', 'triggerUMPEndpointDiscovery');
     
-    // Also trigger MIDI-CI discovery for each UMP device
+    // Handle errors
+    const step2ErrorHandler = (event, arg, xData) => {
+        if(arg === 'umpEndpointDiscoveryError'){
+            const errorMsg = xData && xData.error ? xData.error : 'UMP Endpoint Discovery failed.';
+            showStepStatus('Step 2: UMP Endpoint Discovery', errorMsg, 'danger');
+            ipcRenderer.removeListener('asynchronous-reply', step2ErrorHandler);
+        }
+    };
+    ipcRenderer.on('asynchronous-reply', step2ErrorHandler);
     setTimeout(() => {
-        ipcRenderer.send('asynchronous-message', 'triggerMIDICIDiscovery');
+        ipcRenderer.removeListener('asynchronous-reply', step2ErrorHandler);
     }, 1000);
     
     let step2Done = false;
-    const step2Handler = (event, arg) => {
-        if(arg==='umpDev'){
+    let endpointInfo = [];
+    let blocksCached = false;
+    const step2Handler = (event, arg, xData) => {
+        if(arg==='umpEndpointBlocksCached'){
+            blocksCached = true;
+            console.log('Step 2: Blocks cached notification received', xData);
+        }
+        if(arg==='umpDev' && xData && xData.endpoint){
+            const ep = xData.endpoint;
+            const info = [];
+            
+            // Device identity
+            if(ep.name) info.push(`Device: ${ep.name}`);
+            if(ep.manufacturer) info.push(`Manufacturer: ${ep.manufacturer}`);
+            if(ep.model) info.push(`Model: ${ep.model}`);
+            
+            // Version info
+            if(ep.versionMajor !== undefined && ep.versionMinor !== undefined){
+                info.push(`Version: ${ep.versionMajor}.${ep.versionMinor}`);
+            }
+            
+            // Function blocks
+            if(ep.blocks && ep.blocks.length > 0){
+                const activeBlocks = ep.blocks.filter(fb => fb.active).length;
+                info.push(`Function Blocks: ${ep.blocks.length} total (${activeBlocks} active)`);
+                ep.blocks.forEach((fb, idx) => {
+                    if(fb.active){
+                        const fbInfo = `FB${fb.fbIdx || idx}: ${fb.name || 'Unnamed'}`;
+                        if(fb.firstGroup !== undefined) info.push(`${fbInfo} (Groups ${fb.firstGroup+1}-${fb.firstGroup+fb.numberGroups})`);
+                    }
+                });
+            }
+            
+            // MIDI 2.0 support
+            if(ep.midi2Supp){
+                const supp = [];
+                if(ep.midi2Supp.transUSBMIDI2) supp.push('USB MIDI 2.0');
+                if(Object.keys(ep.midi2Supp).length > 0){
+                    info.push(`MIDI 2.0 Support: ${supp.join(', ') || 'Yes'}`);
+                }
+            }
+            
+            if(info.length > 0){
+                endpointInfo.push(...info);
+            }
+            
             step2Done = true;
-            showStepStatus('Step 2: UMP Endpoint Discovery', 'UMP Endpoint Discovery completed! Device information and identities retrieved.', 'success');
+            const infoText = endpointInfo.length > 0 ? ` Retrieved: ${endpointInfo.join('; ')}` : '';
+            showStepStatus('Step 2: UMP Endpoint Discovery', `UMP Endpoint Discovery completed! Device information and identities retrieved.${infoText}`, 'success');
             ipcRenderer.removeListener('asynchronous-reply', step2Handler);
         }
     };
@@ -281,20 +396,71 @@ function executeStep2() {
 }
 
 function executeStep3() {
+    console.log('=== executeStep3 called ===');
     showStepStatus('Step 3: Select Protocol', 'Selecting protocol and configuring stream...', 'info');
     
     // Trigger protocol negotiation for all discovered MIDI-CI devices
+    console.log('Sending IPC: triggerProtocolNegotiation');
     ipcRenderer.send('asynchronous-message', 'triggerProtocolNegotiation');
     
     let step3Done = false;
-    const step3Handler = (event, arg) => {
+    let protocolInfo = [];
+    const step3Handler = (event, arg, xData) => {
         if(arg==='protocolNegotiationComplete'){
+            const info = [];
+            if(xData){
+                // Handle multiple protocol negotiations (one per MUID)
+                if(xData.protocols && Array.isArray(xData.protocols)){
+                    xData.protocols.forEach(proto => {
+                        const protoInfo = [];
+                        if(proto.muid){
+                            protoInfo.push(`MUID: 0x${parseInt(proto.muid).toString(16).toUpperCase().padStart(8,'0')}`);
+                        }
+                        if(proto.protocols && proto.protocols.length > 0){
+                            protoInfo.push(`Supported: ${proto.protocols.join(', ')}`);
+                        }
+                        if(proto.currentProtocol){
+                            protoInfo.push(`Established: ${proto.currentProtocol}`);
+                        }
+                        if(proto.streamConfig){
+                            protoInfo.push(`Stream: ${proto.streamConfig.protocol}${proto.streamConfig.jrTimestamps ? ' + JR' : ''}`);
+                        }
+                        if(protoInfo.length > 0){
+                            info.push(protoInfo.join('; '));
+                        }
+                    });
+                } else {
+                    // Legacy format
+                    if(xData.protocols && xData.protocols.length > 0){
+                        info.push(`Supported: ${xData.protocols.join(', ')}`);
+                    }
+                    if(xData.currentProtocol){
+                        info.push(`Established: ${xData.currentProtocol}`);
+                    }
+                    if(xData.muid){
+                        info.push(`MUID: 0x${xData.muid.toString(16).toUpperCase().padStart(8,'0')}`);
+                    }
+                }
+                if(xData.streamConfig){
+                    info.push(`Stream Configuration: ${xData.streamConfig.protocol}${xData.streamConfig.jrTimestamps === 'ON' ? ' + JR Timestamps' : ''}`);
+                }
+            }
+            if(info.length > 0){
+                protocolInfo.push(...info);
+            }
             step3Done = true;
-            showStepStatus('Step 3: Select Protocol', 'Protocol selection completed! Stream configured with negotiated protocol.', 'success');
+            const infoText = protocolInfo.length > 0 ? ` Montage Reply: ${protocolInfo.join(' | ')}` : '';
+            showStepStatus('Step 3: Select Protocol', `Protocol negotiation completed!${infoText}`, 'success');
             ipcRenderer.removeListener('asynchronous-reply', step3Handler);
+        } else if(arg==='umpEndpointBlocksCached'){
+            // Blocks were cached from Step 2 - this is good for Step 5
+            console.log('Step 2: Received blocks cached notification', xData);
         }
         if(arg==='protocolNegotiationError'){
-            showStepStatus('Step 3: Select Protocol', 'Protocol negotiation failed.', 'danger');
+            const errorMsg = xData && xData.error ? xData.error : 'Protocol negotiation failed.';
+            showStepStatus('Step 3: Select Protocol', errorMsg, 'danger');
+            step3Done = true;
+            ipcRenderer.removeListener('asynchronous-reply', step3Handler);
         }
     };
     ipcRenderer.on('asynchronous-reply', step3Handler);
@@ -307,41 +473,89 @@ function executeStep3() {
 }
 
 function executeStep4() {
-    showStepStatus('Step 4: Function Blocks Discovery', 'Discovering function blocks and getting detailed information...', 'info');
+    console.log('=== executeStep4 called ===');
+    showStepStatus('Step 4: Function Blocks Discovery', 'Sending Function Block Discovery (0x010) to get Function Block Info and Name notifications...', 'info');
     
-    // Trigger function block discovery and information requests
+    // Step 4: Function Blocks Discovery (per MIDI 2.0 spec)
+    // Sends: Function Block Discovery (0x010)
+    // Receives: Function Block Info Notification (0x11), Function Block Name Notification (0x012)
+    console.log('Sending IPC: triggerFunctionBlockDiscovery');
     ipcRenderer.send('asynchronous-message', 'triggerFunctionBlockDiscovery');
+    
+    let fbInfo = [];
+    const step4Handler = (event, arg, xData) => {
+        if(arg==='umpDev' && xData && xData.endpoint && xData.endpoint.blocks){
+            const blocks = xData.endpoint.blocks;
+            blocks.forEach(fb => {
+                if(fb.active){
+                    const details = [];
+                    details.push(`FB${fb.fbIdx}: ${fb.name || 'Unnamed'}`);
+                    if(fb.firstGroup !== undefined) details.push(`Groups ${fb.firstGroup+1}-${fb.firstGroup+fb.numberGroups}`);
+                    if(fb.direction !== undefined){
+                        const dirs = [];
+                        if(fb.direction & 0b01) dirs.push('IN');
+                        if(fb.direction & 0b10) dirs.push('OUT');
+                        if(dirs.length > 0) details.push(`Direction: ${dirs.join('/')}`);
+                    }
+                    if(fb.ciVersion !== undefined) details.push(`CI v${fb.ciVersion}`);
+                    if(fb.isMIDI1 !== undefined) details.push(fb.isMIDI1 ? 'MIDI 1.0' : 'MIDI 2.0');
+                    fbInfo.push(details.join(', '));
+                }
+            });
+        }
+    };
+    ipcRenderer.on('asynchronous-reply', step4Handler);
     
     setTimeout(() => {
         const hasFB = $('.funcBlock').length > 0;
         if(hasFB){
-            showStepStatus('Step 4: Function Blocks Discovery', 'Function blocks discovery completed! All function block information retrieved.', 'success');
+            const infoText = fbInfo.length > 0 ? ` Retrieved: ${fbInfo.join('; ')}` : '';
+            showStepStatus('Step 4: Function Blocks Discovery', `Function blocks discovery completed! All function block information retrieved.${infoText}`, 'success');
         }else{
             showStepStatus('Step 4: Function Blocks Discovery', 'No Function Blocks found.', 'danger');
         }
+        ipcRenderer.removeListener('asynchronous-reply', step4Handler);
     }, 6000);
 }
 
 function executeStep5() {
+    console.log('=== executeStep5 called ===');
     showStepStatus('Step 5: MIDI-CI Discovery', 'Performing MIDI-CI Discovery and establishing connections...', 'info');
     
-    // success when any MUID appears
+    // Step 5: Send MIDI-CI discovery messages and wait for replies
+    console.log('Sending IPC: triggerMIDICIDiscovery');
+    ipcRenderer.send('asynchronous-message', 'triggerMIDICIDiscovery');
+    
     let step5Done = false;
-    const step5Check = () => {
-        const count = $('[data-muid]').length;
-        if(count>0){
+    const step5Handler = (event, arg, xData) => {
+        if(arg === 'midiciDiscoveryComplete'){
+            // Discovery replies were received - devices are in remoteDevices
+            const muidInfo = [];
+            if(xData && xData.muids){
+                xData.muids.forEach(m => {
+                    const muidHex = '0x' + parseInt(m.muid).toString(16).toUpperCase().padStart(8,'0');
+                    muidInfo.push(`MUID: ${muidHex} (Group ${m.group})`);
+                });
+            }
+            const infoText = muidInfo.length > 0 ? ` Discovered: ${muidInfo.join('; ')}` : ` Discovered ${xData.count || 0} MIDI-CI device(s)`;
+            showStepStatus('Step 5: MIDI-CI Discovery', `MIDI-CI Discovery completed! All MIDI-CI devices identified and connected.${infoText}`, 'success');
             step5Done = true;
-            showStepStatus('Step 5: MIDI-CI Discovery', 'MIDI-CI Discovery completed! All MIDI-CI devices identified and connected.', 'success');
-            $(document).off('DOMNodeInserted', step5Check);
+            ipcRenderer.removeListener('asynchronous-reply', step5Handler);
+        } else if(arg === 'midiciDiscoveryError'){
+            const errorMsg = xData && xData.error ? xData.error : 'MIDI-CI discovery failed.';
+            showStepStatus('Step 5: MIDI-CI Discovery', errorMsg, 'danger');
+            step5Done = true;
+            ipcRenderer.removeListener('asynchronous-reply', step5Handler);
         }
     };
-    $(document).on('DOMNodeInserted', step5Check);
+    ipcRenderer.on('asynchronous-reply', step5Handler);
+    
     setTimeout(()=>{
-        $(document).off('DOMNodeInserted', step5Check);
+        ipcRenderer.removeListener('asynchronous-reply', step5Handler);
         if(!step5Done){
-            showStepStatus('Step 5: MIDI-CI Discovery', 'No MIDI-CI devices discovered.', 'danger');
+            showStepStatus('Step 5: MIDI-CI Discovery', 'No MIDI-CI devices discovered. Make sure Step 2 completed successfully and the device supports MIDI-CI.', 'danger');
         }
-    }, 8000);
+    }, 10000); // Wait 10 seconds total for discovery replies
 }
 
 function executeStep6() {
@@ -372,17 +586,59 @@ function executeStep7() {
 }
 
 function executeStep6WithConfig(config) {
-    showStepStatus('Step 6: Use MIDI-CI', 'Activating MIDI-CI features: Profile Configuration, Property Exchange, Process Inquiry...', 'info');
+    showStepStatus('Step 6: Use MIDI-CI', 'Sending Profile Configuration, Property Exchange, and Process Inquiry messages...', 'info');
     
-    // Trigger MIDI-CI feature activation with configuration
+    // Step 6: Use MIDI-CI (per MIDI 2.0 spec)
+    // Sends: Profile Configuration Messages, Property Exchange Messages, Process Inquiry Messages
+    // Receives: Supported Profiles, Supported PE Resources, Device parameter states
+    console.log('=== executeStep6WithConfig called ===', config);
     ipcRenderer.send('asynchronous-message', 'activateMIDICIFeaturesWithConfig', config);
     
     let step6Done = false;
-    const step6Handler = (event, arg) => {
-        if(['settings','updatePE','peSubUpdate','MIDIReportMessage','CtrlListInfo'].includes(arg)){
+    let featuresActivated = [];
+    const step6Handler = (event, arg, xData) => {
+        if(arg==='midiciFeaturesActivated' && xData && xData.features){
+            featuresActivated = xData.features;
+        } else if(arg==='midiciFeaturesError'){
+            const errorMsg = xData && xData.error ? xData.error : 'MIDI-CI features activation failed.';
+            showStepStatus('Step 6: Use MIDI-CI', errorMsg, 'danger');
+            step6Done = true;
+            ipcRenderer.removeListener('asynchronous-reply', step6Handler);
+            return;
+        }
+        // Profile Configuration responses
+        if(arg==='settings'){
             if(!step6Done){
                 step6Done = true;
-                showStepStatus('Step 6: Use MIDI-CI', 'MIDI-CI features activated! Profile Configuration, Property Exchange, and Process Inquiry ready.', 'success');
+                const targetInfo = config.type === 'channel' ? `Group ${config.group}, Channel ${config.channel}` :
+                                  config.type === 'group' ? `Group ${config.group}` :
+                                  config.type === 'functionBlock' ? `Function Block ${config.functionBlock}` : 'All devices';
+                const featuresText = featuresActivated.length > 0 ? ` Retrieved: ${featuresActivated.join('; ')}` : ' Profile Configuration: Supported Profiles retrieved';
+                showStepStatus('Step 6: Use MIDI-CI', `MIDI-CI features activated for ${targetInfo}.${featuresText}`, 'success');
+                ipcRenderer.removeListener('asynchronous-reply', step6Handler);
+            }
+        }
+        // Property Exchange responses
+        if(['updatePE','peSubUpdate','CtrlListInfo'].includes(arg)){
+            if(!step6Done){
+                step6Done = true;
+                const targetInfo = config.type === 'channel' ? `Group ${config.group}, Channel ${config.channel}` :
+                                  config.type === 'group' ? `Group ${config.group}` :
+                                  config.type === 'functionBlock' ? `Function Block ${config.functionBlock}` : 'All devices';
+                const featuresText = featuresActivated.length > 0 ? ` Retrieved: ${featuresActivated.join('; ')}` : ' Property Exchange: Supported PE Resources retrieved';
+                showStepStatus('Step 6: Use MIDI-CI', `MIDI-CI features activated for ${targetInfo}.${featuresText}`, 'success');
+                ipcRenderer.removeListener('asynchronous-reply', step6Handler);
+            }
+        }
+        // Process Inquiry responses
+        if(arg==='MIDIReportMessage'){
+            if(!step6Done){
+                step6Done = true;
+                const targetInfo = config.type === 'channel' ? `Group ${config.group}, Channel ${config.channel}` :
+                                  config.type === 'group' ? `Group ${config.group}` :
+                                  config.type === 'functionBlock' ? `Function Block ${config.functionBlock}` : 'All devices';
+                const featuresText = featuresActivated.length > 0 ? ` Retrieved: ${featuresActivated.join('; ')}` : ' Process Inquiry: Device parameter states retrieved';
+                showStepStatus('Step 6: Use MIDI-CI', `MIDI-CI features activated for ${targetInfo}.${featuresText}`, 'success');
                 ipcRenderer.removeListener('asynchronous-reply', step6Handler);
             }
         }
@@ -390,7 +646,11 @@ function executeStep6WithConfig(config) {
     ipcRenderer.on('asynchronous-reply', step6Handler);
     setTimeout(()=>{
         if(!step6Done){
-            showStepStatus('Step 6: Use MIDI-CI', 'No responses received from MIDI-CI features.', 'danger');
+            const targetInfo = config.type === 'channel' ? `Group ${config.group}, Channel ${config.channel}` :
+                              config.type === 'group' ? `Group ${config.group}` :
+                              config.type === 'functionBlock' ? `Function Block ${config.functionBlock}` : 'All devices';
+            const featuresText = featuresActivated.length > 0 ? ` Attempted: ${featuresActivated.join('; ')}` : '';
+            showStepStatus('Step 6: Use MIDI-CI', `No responses received from MIDI-CI features for ${targetInfo}.${featuresText} Make sure Step 5 completed successfully.`, 'warning');
             ipcRenderer.removeListener('asynchronous-reply', step6Handler);
         }
     }, 8000);

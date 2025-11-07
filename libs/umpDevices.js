@@ -298,7 +298,34 @@ module.exports = {
         });
     },
     midiOutFunc:(umpDev, ump) => {
-        global.umpDevices[umpDev].midiOutFunc(umpDev, ump);
+        console.log('umpDevices.midiOutFunc called', {
+            umpDev: umpDev,
+            umpPacketCount: Array.isArray(ump) ? ump.length : 0,
+            umpPackets: Array.isArray(ump) ? ump.slice(0, 4).map(u => '0x' + u.toString(16).toUpperCase().padStart(8,'0')) : 'not an array',
+            hasDevice: !!(global.umpDevices && global.umpDevices[umpDev]),
+            hasDeviceMidiOutFunc: !!(global.umpDevices && global.umpDevices[umpDev] && global.umpDevices[umpDev].midiOutFunc),
+            deviceName: global.umpDevices && global.umpDevices[umpDev] ? global.umpDevices[umpDev].name : 'unknown'
+        });
+        if(global.umpDevices && global.umpDevices[umpDev] && global.umpDevices[umpDev].midiOutFunc){
+            console.log('umpDevices.midiOutFunc: Calling device midiOutFunc for', umpDev);
+            try {
+                global.umpDevices[umpDev].midiOutFunc(umpDev, ump);
+                console.log('umpDevices.midiOutFunc: Device midiOutFunc call completed');
+            } catch(e) {
+                console.error('umpDevices.midiOutFunc: ERROR calling device midiOutFunc!', {
+                    error: e.message,
+                    stack: e.stack,
+                    umpDev: umpDev
+                });
+            }
+        } else {
+            console.error('umpDevices.midiOutFunc: Device or midiOutFunc not found!', {
+                umpDev: umpDev,
+                availableDevices: global.umpDevices ? Object.keys(global.umpDevices) : [],
+                deviceExists: !!(global.umpDevices && global.umpDevices[umpDev]),
+                deviceHasMidiOutFunc: !!(global.umpDevices && global.umpDevices[umpDev] && global.umpDevices[umpDev].midiOutFunc)
+            });
+        }
     }
 };
 

@@ -200,6 +200,12 @@ class midici {
 
 	completeMIDICIMsg(newCIMsgObj,umpDev){
 		if(!global.umpDevices || !global.umpDevices[umpDev] || !newCIMsgObj){
+			console.error('completeMIDICIMsg: Missing requirements', {
+				hasGlobalUmpDevices: !!global.umpDevices,
+				hasUmpDev: !!(global.umpDevices && global.umpDevices[umpDev]),
+				hasNewCIMsgObj: !!newCIMsgObj,
+				umpDev: umpDev
+			});
 			return;
 		}
 		newCIMsgObj.sysex.push(0xF7);
@@ -208,10 +214,68 @@ class midici {
 		newCIMsgObj.debug.setSysex(newCIMsgObj.sysex);
 
 
+		// Convert SysEx to UMP packets (MIDI-CI messages are SysEx wrapped in UMP)
+		// Per MIDI 2.0 spec: MIDI-CI messages are Universal SysEx (0xF0...0xF7) wrapped in UMP Type 3 (64-bit Data Messages)
+		const umpPackets = t.midi10ToUMP(newCIMsgObj.group, newCIMsgObj.sysex);
+		const ciSubId = newCIMsgObj.sysex[4]; // MIDI-CI sub-ID (0x70 for Discovery, 0x71 for Reply, etc.)
+		const ciTypeName = midi2Tables.ciTypes[ciSubId]?.title || `Unknown (0x${ciSubId.toString(16).toUpperCase()})`;
+		
+		// Log SysEx to debug screen (for reference)
 		if(this.debug){
 			d.msg("sysex",newCIMsgObj.debug.getDebug(),'out',umpDev,newCIMsgObj.group,newCIMsgObj.debug.getErrors());
 		}
-		this.midiOutFunc(umpDev,t.midi10ToUMP(newCIMsgObj.group, newCIMsgObj.sysex));
+		
+		// Verify UMP packets were created
+		if(!umpPackets || umpPackets.length === 0){
+			console.error('completeMIDICIMsg: ERROR - No UMP packets created from SysEx!', {
+				umpDev: umpDev,
+				group: newCIMsgObj.group,
+				sysexLength: newCIMsgObj.sysex.length,
+				sysexFirstByte: newCIMsgObj.sysex[0]
+			});
+			return;
+		}
+		
+		console.log('completeMIDICIMsg: Converting MIDI-CI SysEx to UMP', {
+			umpDev: umpDev,
+			group: newCIMsgObj.group,
+			ciType: ciTypeName,
+			ciSubId: '0x' + ciSubId.toString(16).toUpperCase(),
+			sysexLength: newCIMsgObj.sysex.length,
+			sysexHex: newCIMsgObj.sysex.slice(0, 20).map(b => '0x' + b.toString(16).toUpperCase().padStart(2,'0')).join(' ') + (newCIMsgObj.sysex.length > 20 ? '...' : ''),
+			umpPacketCount: umpPackets.length,
+			umpPackets: umpPackets.map(u => '0x' + u.toString(16).toUpperCase().padStart(8,'0')),
+			umpMessageType: umpPackets.length > 0 ? ((umpPackets[0] >>> 28) & 0xF) : 'unknown',
+			hasMidiOutFunc: !!this.midiOutFunc,
+			midiOutFuncType: typeof this.midiOutFunc
+		});
+		
+		// Send UMP packets to device (this is the actual UMP transmission)
+		if(this.midiOutFunc){
+			console.log('completeMIDICIMsg: Sending UMP packets via midiOutFunc', {
+				umpDev: umpDev,
+				umpPacketCount: umpPackets.length,
+				deviceExists: !!(global.umpDevices && global.umpDevices[umpDev]),
+				deviceHasMidiOutFunc: !!(global.umpDevices && global.umpDevices[umpDev] && global.umpDevices[umpDev].midiOutFunc)
+			});
+			try {
+				// This sends the UMP packets - the device's midiOutFunc will log them to debug screen
+				this.midiOutFunc(umpDev, umpPackets);
+				console.log('completeMIDICIMsg: UMP packets sent successfully via midiOutFunc');
+			} catch(e) {
+				console.error('completeMIDICIMsg: ERROR calling midiOutFunc!', {
+					error: e.message,
+					stack: e.stack,
+					umpDev: umpDev
+				});
+			}
+		} else {
+			console.error('completeMIDICIMsg: midiOutFunc is not set! Cannot send UMP.', {
+				umpDev: umpDev,
+				hasThis: !!this,
+				midiOutFuncProperty: this ? Object.keys(this).filter(k => k.includes('midi')) : []
+			});
+		}
 
 		if(newCIMsgObj.cbTimeoutActive){
 			if(!this.cbTimeoutResponses[newCIMsgObj.destMuid])this.cbTimeoutResponses[newCIMsgObj.destMuid]={};
@@ -260,6 +324,22 @@ class midici {
 	}
 //************************************
 	sendDiscovery(umpDev, group = 0, ciSupport = 0){
+		console.log('sendDiscovery called', {
+			umpDev: umpDev,
+			group: group,
+			hasGlobalUmpDevices: !!global.umpDevices,
+			deviceExists: !!(global.umpDevices && global.umpDevices[umpDev]),
+			availableDevices: global.umpDevices ? Object.keys(global.umpDevices) : []
+		});
+		
+		if(!global.umpDevices || !global.umpDevices[umpDev]){
+			console.error('sendDiscovery: Device not found in global.umpDevices!', {
+				umpDev: umpDev,
+				availableDevices: global.umpDevices ? Object.keys(global.umpDevices) : []
+			});
+			return;
+		}
+		
 		this.discoveryTimer = process.hrtime();
 		this.discoveryList=[];
 
@@ -280,6 +360,7 @@ class midici {
 				outputPathId: Object.keys(global.umpDevices).indexOf(umpDev),
 				ciSupport
 			});
+		console.log('sendDiscovery: Created MIDI-CI discovery message, calling completeMIDICIMsg');
 		this.completeMIDICIMsg(newResponse,umpDev);
 	}
 

@@ -66,8 +66,17 @@ module.exports = {
         if(CoreMIDI2){
             if(MIDI2Devices[id]){
                 sendOutUMPBrokenUp(ump,0,(umpSplit,group)=>{
-                    CoreMIDI2.sendUMP(MIDI2Devices[id].DestinationRef, umpSplit);
+                    const destRef = MIDI2Devices[id].DestinationRef;
+                    if(destRef){
+                        console.log('CoreMIDI2.sendUMP: id=', id, 'DestinationRef=', destRef, 'umpSplit length=', umpSplit.length);
+                        CoreMIDI2.sendUMP(destRef, umpSplit);
+                    } else {
+                        console.error('CoreMIDI2: No DestinationRef for device id:', id);
+                    }
                 });
+            } else {
+                console.error('CoreMIDI2.sendMIDI: Device not found in MIDI2Devices, id:', id);
+                console.log('Available device IDs:', Object.keys(MIDI2Devices));
             }
             return;
         }
@@ -249,17 +258,39 @@ else if(os.platform()==='darwin' && (release[0] * 100) + release[1] >= 2104){
                     let usbDetails = {};
                     for(let i=0; i< UIListIds.length;i++){
                         let u = Ulist[UIListIds[i]];
+                        // Try multiple matching strategies
                         if (
-                            nep.clientName === u.iProduct
-                            //&& d.kMIDIPropertyDriverVersion===0
+                            nep.clientName === u.iProduct ||
+                            (nep.clientName && u.iProduct && nep.clientName.includes(u.iProduct)) ||
+                            (u.iProduct && nep.clientName && u.iProduct.includes(nep.clientName))
                         ){
+                            console.log('Matched USB device:', u.iProduct, 'to CoreMIDI device:', nep.clientName);
                             MIDI2Devices[nep.MIDIDeviceRef].usbDetails = u;
+                            usbDetails = u;
+                            break;
                         }
                     }
+                    
+                    // If no USB details found, log for debugging
+                    if(!usbDetails || Object.keys(usbDetails).length === 0){
+                        console.log('Warning: No USB details found for device:', nep.clientName);
+                        console.log('Available USB devices:', UIListIds.map(id => Ulist[id].iProduct));
+                    } else {
+                        console.log('USB details found for:', nep.clientName);
+                    }
 
-
-                    console.log('New EP:'+ nep.clientName);
-                    alertNewDev(nep.MIDIDeviceRef,nep);
+                    console.log('Adding UMP device:', nep.clientName, 'with USB details:', !!usbDetails);
+                    console.log('Device details:', {
+                        MIDIDeviceRef: nep.MIDIDeviceRef,
+                        clientName: nep.clientName,
+                        DestinationRef: nep.DestinationRef,
+                        InportRef: nep.InportRef,
+                        hasUSBDetails: !!usbDetails
+                    });
+                    // Ensure device has required properties
+                    if(!nep.devId) nep.devId = nep.MIDIDeviceRef;
+                    if(!nep.clientName && usbDetails && usbDetails.iProduct) nep.clientName = usbDetails.iProduct;
+                    alertNewDev(nep.MIDIDeviceRef, nep);
                     //console.dir(nep,{depth:null})
                 }
             });
