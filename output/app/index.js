@@ -480,31 +480,48 @@ function executeStep4() {
     // Sends: Function Block Discovery (0x010)
     // Receives: Function Block Info Notification (0x11), Function Block Name Notification (0x012)
     console.log('Sending IPC: triggerFunctionBlockDiscovery');
-    ipcRenderer.send('asynchronous-message', 'triggerFunctionBlockDiscovery');
     
+    // Remove any existing handler first to prevent duplicates
+    if(window._step4Handler){
+        ipcRenderer.removeListener('asynchronous-reply', window._step4Handler);
+    }
+    
+    // Track processed function blocks to avoid duplicates (device + fbIdx as key)
+    const processedBlocks = new Set();
     let fbInfo = [];
-    const step4Handler = (event, arg, xData) => {
+    
+    window._step4Handler = (event, arg, xData) => {
         if(arg==='umpDev' && xData && xData.endpoint && xData.endpoint.blocks){
             const blocks = xData.endpoint.blocks;
+            const umpDev = xData.umpDev || 'unknown';
             blocks.forEach(fb => {
                 if(fb.active){
-                    const details = [];
-                    details.push(`FB${fb.fbIdx}: ${fb.name || 'Unnamed'}`);
-                    if(fb.firstGroup !== undefined) details.push(`Groups ${fb.firstGroup+1}-${fb.firstGroup+fb.numberGroups}`);
-                    if(fb.direction !== undefined){
-                        const dirs = [];
-                        if(fb.direction & 0b01) dirs.push('IN');
-                        if(fb.direction & 0b10) dirs.push('OUT');
-                        if(dirs.length > 0) details.push(`Direction: ${dirs.join('/')}`);
+                    // Create unique key for this function block
+                    const blockKey = `${umpDev}:FB${fb.fbIdx}`;
+                    // Only process if we haven't seen this block before
+                    if(!processedBlocks.has(blockKey)){
+                        processedBlocks.add(blockKey);
+                        const details = [];
+                        details.push(`FB${fb.fbIdx}: ${fb.name || 'Unnamed'}`);
+                        if(fb.firstGroup !== undefined) details.push(`Groups ${fb.firstGroup+1}-${fb.firstGroup+fb.numberGroups}`);
+                        if(fb.direction !== undefined){
+                            const dirs = [];
+                            if(fb.direction & 0b01) dirs.push('IN');
+                            if(fb.direction & 0b10) dirs.push('OUT');
+                            if(dirs.length > 0) details.push(`Direction: ${dirs.join('/')}`);
+                        }
+                        if(fb.ciVersion !== undefined) details.push(`CI v${fb.ciVersion}`);
+                        if(fb.isMIDI1 !== undefined) details.push(fb.isMIDI1 ? 'MIDI 1.0' : 'MIDI 2.0');
+                        fbInfo.push(details.join(', '));
                     }
-                    if(fb.ciVersion !== undefined) details.push(`CI v${fb.ciVersion}`);
-                    if(fb.isMIDI1 !== undefined) details.push(fb.isMIDI1 ? 'MIDI 1.0' : 'MIDI 2.0');
-                    fbInfo.push(details.join(', '));
                 }
             });
         }
     };
-    ipcRenderer.on('asynchronous-reply', step4Handler);
+    ipcRenderer.on('asynchronous-reply', window._step4Handler);
+    
+    // Send the discovery request
+    ipcRenderer.send('asynchronous-message', 'triggerFunctionBlockDiscovery');
     
     setTimeout(() => {
         const hasFB = $('.funcBlock').length > 0;
@@ -514,7 +531,8 @@ function executeStep4() {
         }else{
             showStepStatus('Step 4: Function Blocks Discovery', 'No Function Blocks found.', 'danger');
         }
-        ipcRenderer.removeListener('asynchronous-reply', step4Handler);
+        ipcRenderer.removeListener('asynchronous-reply', window._step4Handler);
+        window._step4Handler = null;
     }, 6000);
 }
 
