@@ -47,6 +47,7 @@
 			border-radius: 0.5rem;
 			border: none;
 			box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+			max-width: 100%;
 		}
 		
 		.alert-success {
@@ -67,6 +68,8 @@
 			border: 1px solid #dee2e6;
 			border-radius: 0.25rem;
 			background-color: #fff;
+			position: sticky;
+			top: 20px;
 		}
 		
 		#debugPanel.show {
@@ -80,6 +83,51 @@
 		
 		#debugPanel .table {
 			margin-bottom: 0;
+		}
+		
+		.scroll-to-status-btn {
+			cursor: pointer;
+			transition: color 0.3s ease;
+			user-select: none;
+			pointer-events: auto;
+		}
+		
+		.scroll-to-status-btn:hover {
+			color: #007bff;
+			text-decoration: underline;
+		}
+		
+		.scroll-to-status-btn i {
+			margin-right: 0.5rem;
+		}
+		
+		#mt3PacketSender {
+			margin-bottom: 1rem;
+			border: 1px solid #dee2e6;
+			border-radius: 0.25rem;
+			background-color: #fff;
+			padding: 1rem;
+		}
+		
+		#mt3HexInput {
+			font-family: 'Courier New', monospace;
+			font-size: 0.9rem;
+			width: 100%;
+			min-height: 120px;
+			padding: 0.75rem;
+			border: 1px solid #ced4da;
+			border-radius: 0.25rem;
+			resize: vertical;
+		}
+		
+		#mt3HexInput:focus {
+			outline: none;
+			border-color: #80bdff;
+			box-shadow: 0 0 0 0.2rem rgba(0,123,255,.25);
+		}
+		
+		#mt3SendBtn {
+			margin-top: 0.5rem;
 		}
 		
 		.umpvalnum {
@@ -138,7 +186,56 @@
 	</div>
 	<div class="row">
 		<div class="col-md-5">
-			<h4 class="mb-3">MIDI 2.0 Setup Steps</h4>
+			<!-- MT3 Packet Sender -->
+			<div id="mt3PacketSender" class="mb-3">
+				<h5 class="mb-3"><i class="fas fa-code"></i> Send MT3 Packets</h5>
+				<div class="row mb-2">
+					<div class="col-md-6">
+						<div class="form-group">
+							<label for="mt3DeviceSelect" class="form-label">Device:</label>
+							<select id="mt3DeviceSelect" class="form-control">
+								<option value="">No devices available</option>
+							</select>
+						</div>
+					</div>
+					<div class="col-md-6">
+						<div class="form-group">
+							<label for="mt3GroupSelect" class="form-label">Group (0-15):</label>
+							<select id="mt3GroupSelect" class="form-control">
+								<option value="0">Group 0</option>
+								<option value="1">Group 1</option>
+								<option value="2">Group 2</option>
+								<option value="3">Group 3</option>
+								<option value="4">Group 4</option>
+								<option value="5">Group 5</option>
+								<option value="6">Group 6</option>
+								<option value="7">Group 7</option>
+								<option value="8">Group 8</option>
+								<option value="9">Group 9</option>
+								<option value="10">Group 10</option>
+								<option value="11">Group 11</option>
+								<option value="12">Group 12</option>
+								<option value="13">Group 13</option>
+								<option value="14">Group 14</option>
+								<option value="15">Group 15</option>
+							</select>
+						</div>
+					</div>
+				</div>
+				<div class="form-group">
+					<label for="mt3HexInput" class="form-label">Hex Values (space or newline separated):</label>
+					<textarea id="mt3HexInput" class="form-control" 
+						placeholder="Enter hex values here, e.g.&#10;F0 7E 00 06 01 F7&#10;or&#10;F07E000601F7"></textarea>
+					<small class="form-text text-muted">SysEx format: Should start with F0 and end with F7</small>
+				</div>
+				<button id="mt3SendBtn" type="button" class="btn btn-primary">
+					Send
+				</button>
+			</div>
+			
+			<h4 class="mb-3 mt-4 scroll-to-status-btn" id="scrollToStatusBtn" title="Click to scroll to step status">
+				MIDI 2.0 Setup Steps
+			</h4>
 			<div class="btn-group-vertical" role="group" style="width: 100%;">
 				<button id="step1Button" type="button" class="btn btn-outline-primary btn-lg mb-2" 
 						data-tooltip="tooltip" title="Step 1: Connect Devices - Get Transport layer device descriptors">
@@ -168,6 +265,12 @@
 						data-tooltip="tooltip" title="Step 7: Use MIDI - System Messages, Channel Voice Messages">
 					<i class="fas fa-music"></i> Step 7: Use MIDI
 				</button>
+			</div>
+			
+			<!-- Step Status (moved here, below step buttons) -->
+			<div id="stepStatus" class="alert alert-info mt-3" style="display: none; max-width: 100%;">
+				<h5><i class="fas fa-info-circle"></i> Step Status</h5>
+				<div id="stepStatusContent"></div>
 			</div>
 		</div>
 		<div class="col-md-7">
@@ -317,14 +420,6 @@
 						</div>
 					</div>
 				</div>
-			</div>
-		</div>
-	</div>
-	<div class="row mt-3">
-		<div class="col-12">
-			<div id="stepStatus" class="alert alert-info" style="display: none;">
-				<h5><i class="fas fa-info-circle"></i> Step Status</h5>
-				<div id="stepStatusContent"></div>
 			</div>
 		</div>
 	</div>

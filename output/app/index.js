@@ -42,13 +42,30 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             case 'umpDevRemove': {
                 $('[data-umpDev="' + xData.umpDev + '"]').remove();
-
+                // Remove from MT3 available devices
+                if (window.mt3AvailableDevices) {
+                    const index = window.mt3AvailableDevices.indexOf(xData.umpDev);
+                    if (index > -1) {
+                        window.mt3AvailableDevices.splice(index, 1);
+                    }
+                }
+                // Update device dropdown
+                updateMT3DeviceDropdown();
                 break;
             }
             case 'umpDev': {
                 createUMPCard(xData.umpDev);
                 addUMPDevHead(xData.umpDev,xData.endpoint);
                 addUMPDevFBs(xData.umpDev,xData.endpoint.blocks);
+                // Store device for MT3 sender
+                if (!window.mt3AvailableDevices) {
+                    window.mt3AvailableDevices = [];
+                }
+                if (window.mt3AvailableDevices.indexOf(xData.umpDev) === -1) {
+                    window.mt3AvailableDevices.push(xData.umpDev);
+                }
+                // Update device dropdown
+                updateMT3DeviceDropdown();
                 break;
             }
 
@@ -146,6 +163,40 @@ document.addEventListener('DOMContentLoaded', () => {
         e.preventDefault();
         $('#debugPanel').toggleClass('show');
     });
+    
+    // MT3 Packet Sender
+    $('#mt3SendBtn').on('click', function() {
+        sendMT3Packets();
+    });
+    
+    // Scroll to step status button - simplified approach
+    $(document).ready(function() {
+        $('#scrollToStatusBtn').on('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const stepStatusEl = document.getElementById('stepStatus');
+            if (stepStatusEl) {
+                // Show it if hidden
+                if (stepStatusEl.style.display === 'none') {
+                    stepStatusEl.style.display = 'block';
+                }
+                
+                // Use native scrollIntoView for better compatibility
+                stepStatusEl.scrollIntoView({ 
+                    behavior: 'smooth', 
+                    block: 'start',
+                    inline: 'nearest'
+                });
+            }
+        });
+    });
+    
+    // Store available devices for MT3 sender
+    window.mt3AvailableDevices = [];
+    
+    // Initialize device dropdown
+    updateMT3DeviceDropdown();
     
     // Initialize debug data on page load (debug.js will handle this, but ensure it's loaded)
     // The debug.js script handles the initial data loading
@@ -1044,4 +1095,208 @@ function addUMPDevFBs(umpDev,FBList){
             buildMIDICIDevice(jqFB, fb.muids[muid]);
         });
     });
+}
+
+// MT3 Packet Sender Functions
+function updateMT3DeviceDropdown() {
+    const $select = $('#mt3DeviceSelect');
+    $select.empty();
+    
+    const devices = window.mt3AvailableDevices || [];
+    if (devices.length === 0) {
+        $select.append('<option value="">No devices available</option>');
+        return;
+    }
+    
+    devices.forEach(umpDev => {
+        // Try to get device name from the card
+        const $card = $('[data-umpDev="' + umpDev + '"]');
+        let deviceName = umpDev;
+        if ($card.length) {
+            const $header = $card.find('.card-header');
+            if ($header.length) {
+                const nameText = $header.text().trim();
+                if (nameText) {
+                    deviceName = nameText.split('\n')[0]; // Get first line
+                }
+            }
+        }
+        $select.append(`<option value="${umpDev}">${deviceName}</option>`);
+    });
+    
+    // Select first device by default if none selected
+    if (!$select.val() && devices.length > 0) {
+        $select.val(devices[0]);
+    }
+}
+
+function parseHexInput(hexString, validateSysEx = true) {
+    // Remove whitespace, newlines, and common separators
+    const cleaned = hexString.replace(/[\s\n\r,;:]/g, '');
+    
+    // Validate hex string (must be even length and only hex characters)
+    if (cleaned.length % 2 !== 0) {
+        throw new Error('Hex string must have even number of characters');
+    }
+    if (!/^[0-9A-Fa-f]*$/.test(cleaned)) {
+        throw new Error('Invalid hex characters found');
+    }
+    
+    // Convert to byte array
+    const bytes = [];
+    for (let i = 0; i < cleaned.length; i += 2) {
+        bytes.push(parseInt(cleaned.substr(i, 2), 16));
+    }
+    
+    // SysEx validation
+    if (validateSysEx && bytes.length > 0) {
+        // Check if it looks like SysEx (starts with F0, ends with F7)
+        if (bytes[0] === 0xF0 && bytes[bytes.length - 1] !== 0xF7) {
+            throw new Error('SysEx message must end with F7');
+        }
+        if (bytes[0] !== 0xF0 && bytes.length > 0) {
+            // Warn but don't error - user might want to send non-SysEx data
+            console.warn('Input does not start with F0 (SysEx start). This may not be valid SysEx data.');
+        }
+        if (bytes.length < 2) {
+            throw new Error('SysEx message too short (minimum F0 F7)');
+        }
+    }
+    
+    return bytes;
+}
+
+function convertBytesToMT3Packets(bytes, group = 0) {
+    // Convert byte array to MT3 (Message Type 3) UMP packets
+    // MT3 is 64-bit (2 x 32-bit words) for System Exclusive messages
+    const umpPackets = [];
+    
+    if (bytes.length === 0) {
+        return umpPackets;
+    }
+    
+    // Process bytes in chunks of 6 (max data bytes per MT3 packet)
+    let i = 0;
+    let isFirstPacket = true;
+    
+    while (i < bytes.length) {
+        const remainingBytes = bytes.length - i;
+        const bytesInThisPacket = Math.min(remainingBytes, 6);
+        
+        // Word 1: MT3 header
+        let word1 = ((0x03 << 4) + group) << 24; // Message Type 3 + Group
+        
+        // Determine status:
+        // 0x0 = Complete message in one packet
+        // 0x1 = Start packet
+        // 0x2 = Continue packet  
+        // 0x3 = End packet
+        let status = 0;
+        if (bytes.length <= 6) {
+            status = 0; // Complete in one packet
+        } else if (isFirstPacket) {
+            status = 1; // Start
+        } else if (i + bytesInThisPacket >= bytes.length) {
+            status = 3; // End
+        } else {
+            status = 2; // Continue
+        }
+        
+        word1 += (status << 20); // Status in bits 20-23
+        word1 += (bytesInThisPacket << 16); // Number of bytes in bits 16-19
+        
+        // Add first 2 data bytes to word1
+        if (bytesInThisPacket > 0) {
+            word1 += (bytes[i] << 8);
+        }
+        if (bytesInThisPacket > 1) {
+            word1 += bytes[i + 1];
+        }
+        
+        // Word 2: Remaining 4 data bytes
+        let word2 = 0;
+        if (bytesInThisPacket > 2) {
+            word2 += (bytes[i + 2] << 24);
+        }
+        if (bytesInThisPacket > 3) {
+            word2 += (bytes[i + 3] << 16);
+        }
+        if (bytesInThisPacket > 4) {
+            word2 += (bytes[i + 4] << 8);
+        }
+        if (bytesInThisPacket > 5) {
+            word2 += bytes[i + 5];
+        }
+        
+        umpPackets.push(word1);
+        umpPackets.push(word2);
+        
+        i += bytesInThisPacket;
+        isFirstPacket = false;
+    }
+    
+    return umpPackets;
+}
+
+function sendMT3Packets() {
+    try {
+        // Get hex input
+        const hexInput = $('#mt3HexInput').val().trim();
+        if (!hexInput) {
+            common.buildModalAlert('Please enter hex values to send', 'warning');
+            return;
+        }
+        
+        // Get selected device
+        const umpDev = $('#mt3DeviceSelect').val();
+        if (!umpDev) {
+            common.buildModalAlert('Please select a MIDI 2.0 device', 'warning');
+            return;
+        }
+        
+        // Get selected group
+        const group = parseInt($('#mt3GroupSelect').val(), 10);
+        if (isNaN(group) || group < 0 || group > 15) {
+            common.buildModalAlert('Invalid group selected', 'error');
+            return;
+        }
+        
+        // Parse hex to bytes (with SysEx validation)
+        let bytes;
+        try {
+            bytes = parseHexInput(hexInput, true);
+        } catch (e) {
+            common.buildModalAlert('Error parsing hex: ' + e.message, 'error');
+            return;
+        }
+        
+        if (bytes.length === 0) {
+            common.buildModalAlert('No valid hex data found', 'warning');
+            return;
+        }
+        
+        // Convert bytes to MT3 packets
+        const umpPackets = convertBytesToMT3Packets(bytes, group);
+        
+        if (umpPackets.length === 0) {
+            common.buildModalAlert('Failed to convert hex to MT3 packets', 'error');
+            return;
+        }
+        
+        // Send via IPC
+        ipcRenderer.send('asynchronous-message', 'sendUMP', {
+            umpDev: umpDev,
+            ump: umpPackets
+        });
+        
+        // Get device name for display
+        const deviceName = $('#mt3DeviceSelect option:selected').text();
+        
+        // Show success message
+        common.buildModalAlert(`Sent ${bytes.length} bytes as ${umpPackets.length / 2} MT3 packet(s) to ${deviceName} (Group ${group})`, 'success');
+        
+    } catch (e) {
+        console.error('Error sending MT3 packets:', e);
+        common.buildModalAlert('Error sending MT3 packets: ' + e.message, 'error');
+    }
 }
