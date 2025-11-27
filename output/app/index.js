@@ -140,6 +140,15 @@ document.addEventListener('DOMContentLoaded', () => {
     $(function () {
         $('[data-tooltip="tooltip"]').tooltip()
     })
+    
+    // Toggle debug panel instead of opening debug window
+    $('#ddbLink').off('click').on('click', function(e) {
+        e.preventDefault();
+        $('#debugPanel').toggleClass('show');
+    });
+    
+    // Initialize debug data on page load (debug.js will handle this, but ensure it's loaded)
+    // The debug.js script handles the initial data loading
 
     // MIDI 2.0 Step Buttons Event Handlers
     $('#step1Button').on('click', function() {
