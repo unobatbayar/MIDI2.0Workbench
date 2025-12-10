@@ -158,11 +158,8 @@ document.addEventListener('DOMContentLoaded', () => {
         $('[data-tooltip="tooltip"]').tooltip()
     })
     
-    // Toggle debug panel instead of opening debug window
-    $('#ddbLink').off('click').on('click', function(e) {
-        e.preventDefault();
-        $('#debugPanel').toggleClass('show');
-    });
+    // Debug link opens popup window (original behavior)
+    // No inline debug panel anymore
     
     // MT3 Packet Sender
     $('#mt3SendBtn').on('click', function() {
@@ -1169,7 +1166,23 @@ function parseHexInput(hexString, validateSysEx = true) {
 function convertBytesToMT3Packets(bytes, group = 0) {
     // Convert byte array to MT3 (Message Type 3) UMP packets
     // MT3 is 64-bit (2 x 32-bit words) for System Exclusive messages
+    // IMPORTANT: F0 (start) and F7 (end) bytes should NOT be included in UMP packets
+    // The UMP packet structure itself indicates start/end, so strip F0/F7
     const umpPackets = [];
+    
+    if (bytes.length === 0) {
+        return umpPackets;
+    }
+    
+    // Strip F0 from beginning if present
+    if (bytes[0] === 0xF0) {
+        bytes = bytes.slice(1);
+    }
+    
+    // Strip F7 from end if present
+    if (bytes.length > 0 && bytes[bytes.length - 1] === 0xF7) {
+        bytes = bytes.slice(0, bytes.length - 1);
+    }
     
     if (bytes.length === 0) {
         return umpPackets;
@@ -1238,26 +1251,55 @@ function convertBytesToMT3Packets(bytes, group = 0) {
     return umpPackets;
 }
 
+function showMT3Status(message, type = 'info') {
+    const statusEl = document.getElementById('mt3Status');
+    const contentEl = document.getElementById('mt3StatusContent');
+    
+    if (statusEl && contentEl) {
+        // Remove existing alert classes and add the new one
+        statusEl.className = 'alert mt-3';
+        statusEl.classList.add('alert-' + type);
+        
+        // Update content
+        contentEl.textContent = message;
+        
+        // Show the status area
+        statusEl.style.display = 'block';
+        
+        // Scroll into view
+        statusEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        
+        // Auto-hide success messages after 5 seconds
+        if (type === 'success') {
+            setTimeout(() => {
+                if (statusEl && statusEl.style.display !== 'none') {
+                    statusEl.style.display = 'none';
+                }
+            }, 5000);
+        }
+    }
+}
+
 function sendMT3Packets() {
     try {
         // Get hex input
         const hexInput = $('#mt3HexInput').val().trim();
         if (!hexInput) {
-            common.buildModalAlert('Please enter hex values to send', 'warning');
+            showMT3Status('Please enter hex values to send', 'warning');
             return;
         }
         
         // Get selected device
         const umpDev = $('#mt3DeviceSelect').val();
         if (!umpDev) {
-            common.buildModalAlert('Please select a MIDI 2.0 device', 'warning');
+            showMT3Status('Please select a MIDI 2.0 device', 'warning');
             return;
         }
         
         // Get selected group
         const group = parseInt($('#mt3GroupSelect').val(), 10);
         if (isNaN(group) || group < 0 || group > 15) {
-            common.buildModalAlert('Invalid group selected', 'error');
+            showMT3Status('Invalid group selected', 'danger');
             return;
         }
         
@@ -1266,22 +1308,28 @@ function sendMT3Packets() {
         try {
             bytes = parseHexInput(hexInput, true);
         } catch (e) {
-            common.buildModalAlert('Error parsing hex: ' + e.message, 'error');
+            showMT3Status('Error parsing hex: ' + e.message, 'danger');
             return;
         }
         
         if (bytes.length === 0) {
-            common.buildModalAlert('No valid hex data found', 'warning');
+            showMT3Status('No valid hex data found', 'warning');
             return;
         }
         
-        // Convert bytes to MT3 packets
+        // Convert bytes to MT3 packets (F0/F7 are automatically stripped by convertBytesToMT3Packets)
+        const originalLength = bytes.length;
+        const hadF0 = bytes.length > 0 && bytes[0] === 0xF0;
+        const hadF7 = bytes.length > 0 && bytes[bytes.length - 1] === 0xF7;
         const umpPackets = convertBytesToMT3Packets(bytes, group);
         
         if (umpPackets.length === 0) {
-            common.buildModalAlert('Failed to convert hex to MT3 packets', 'error');
+            showMT3Status('Failed to convert hex to MT3 packets', 'danger');
             return;
         }
+        
+        // Calculate actual data bytes sent (excluding F0/F7)
+        const dataBytesSent = originalLength - (hadF0 ? 1 : 0) - (hadF7 ? 1 : 0);
         
         // Send via IPC
         ipcRenderer.send('asynchronous-message', 'sendUMP', {
@@ -1292,11 +1340,11 @@ function sendMT3Packets() {
         // Get device name for display
         const deviceName = $('#mt3DeviceSelect option:selected').text();
         
-        // Show success message
-        common.buildModalAlert(`Sent ${bytes.length} bytes as ${umpPackets.length / 2} MT3 packet(s) to ${deviceName} (Group ${group})`, 'success');
+        // Show success message (note: F0/F7 are not included in UMP packets)
+        showMT3Status(`Sent ${dataBytesSent} data bytes (${originalLength} total with F0/F7) as ${umpPackets.length / 2} MT3 packet(s) to ${deviceName} (Group ${group})`, 'success');
         
     } catch (e) {
         console.error('Error sending MT3 packets:', e);
-        common.buildModalAlert('Error sending MT3 packets: ' + e.message, 'error');
+        showMT3Status('Error sending MT3 packets: ' + e.message, 'danger');
     }
 }

@@ -186,6 +186,34 @@ function addDev(umpDev,m2){
                 });
                 d.msg('ump',umpSplit,'out',umpDev, group);
             });
+            
+            // Convert MT=3 (SysEx) UMP messages back to SysEx and log to SysEx7 tab
+            if(ump.length > 0) {
+                const firstMT = ump[0] >>> 28;
+                if(firstMT === 0x3) {
+                    // This is a SysEx message wrapped in UMP
+                    try {
+                        const sysexMessages = t.umpToMidi10(ump);
+                        if(sysexMessages && sysexMessages.length > 0) {
+                            // Process each complete SysEx message
+                            sysexMessages.forEach(sysex => {
+                                if(sysex && sysex.length > 0 && sysex[0] === 0xF0 && sysex[sysex.length - 1] === 0xF7) {
+                                    // Create a simple debug object for the SysEx message
+                                    const sysexDebug = d.new(`Sent SysEx (${sysex.length} bytes)`);
+                                    sysexDebug.setSysex(sysex);
+                                    // Add basic breakdown
+                                    sysexDebug.addDebug(0, 1, "System Exclusive Start");
+                                    sysexDebug.addDebug(sysex.length - 1, 1, "End Universal System Exclusive");
+                                    // Log to SysEx7 tab
+                                    d.msg('sysex', sysexDebug.getDebug(), 'out', umpDev, group);
+                                }
+                            });
+                        }
+                    } catch(e) {
+                        console.error('UMPusb.midiOutFunc: Error converting UMP to SysEx:', e);
+                    }
+                }
+            }
 
         }
     });

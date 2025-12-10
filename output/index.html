@@ -62,28 +62,6 @@
 			color: #0c5460;
 		}
 		
-		#debugPanel {
-			display: none;
-			height: 600px;
-			border: 1px solid #dee2e6;
-			border-radius: 0.25rem;
-			background-color: #fff;
-			position: sticky;
-			top: 20px;
-		}
-		
-		#debugPanel.show {
-			display: block;
-		}
-		
-		#debugPanel .tab-content {
-			height: calc(600px - 120px);
-			overflow-y: auto;
-		}
-		
-		#debugPanel .table {
-			margin-bottom: 0;
-		}
 		
 		.scroll-to-status-btn {
 			cursor: pointer;
@@ -186,6 +164,47 @@
 	</div>
 	<div class="row">
 		<div class="col-md-5">
+			<div class="bg-primary text-white p-2 mb-3 scroll-to-status-btn" id="scrollToStatusBtn" title="Click to scroll to step status">
+				<strong>MIDI 2.0 Setup Steps</strong>
+			</div>
+			<div class="btn-group-vertical" role="group" style="width: 100%;">
+				<button id="step1Button" type="button" class="btn btn-outline-primary btn-lg mb-2" 
+						data-tooltip="tooltip" title="Step 1: Connect Devices - Get Transport layer device descriptors">
+					<i class="fas fa-plug"></i> Step 1: Connect Devices
+				</button>
+				<button id="step2Button" type="button" class="btn btn-outline-primary btn-lg mb-2" 
+						data-tooltip="tooltip" title="Step 2: UMP Endpoint Discovery - Endpoint Discovery, Device Identity, etc.">
+					<i class="fas fa-search"></i> Step 2: UMP Endpoint Discovery
+				</button>
+				<button id="step3Button" type="button" class="btn btn-outline-primary btn-lg mb-2" 
+						data-tooltip="tooltip" title="Step 3: Select Protocol - Stream Configuration Request/Notification">
+					<i class="fas fa-cogs"></i> Step 3: Select Protocol
+				</button>
+				<button id="step4Button" type="button" class="btn btn-outline-primary btn-lg mb-2" 
+						data-tooltip="tooltip" title="Step 4: Function Blocks Discovery - Function Block Discovery, Info, Name">
+					<i class="fas fa-puzzle-piece"></i> Step 4: Function Blocks Discovery
+				</button>
+				<button id="step5Button" type="button" class="btn btn-outline-primary btn-lg mb-2" 
+						data-tooltip="tooltip" title="Step 5: MIDI-CI Discovery - MIDI-CI Discovery and Reply">
+					<i class="fas fa-handshake"></i> Step 5: MIDI-CI Discovery
+				</button>
+				<button id="step6Button" type="button" class="btn btn-outline-primary btn-lg mb-2" 
+						data-tooltip="tooltip" title="Step 6: Use MIDI-CI - Profile Configuration, Property Exchange, Process Inquiry">
+					<i class="fas fa-exchange-alt"></i> Step 6: Use MIDI-CI
+				</button>
+				<button id="step7Button" type="button" class="btn btn-outline-primary btn-lg mb-2" 
+						data-tooltip="tooltip" title="Step 7: Use MIDI - System Messages, Channel Voice Messages">
+					<i class="fas fa-music"></i> Step 7: Use MIDI
+				</button>
+			</div>
+			
+			<!-- Step Status (moved here, below step buttons) -->
+			<div id="stepStatus" class="alert alert-info mt-3" style="display: none; max-width: 100%;">
+				<h5><i class="fas fa-info-circle"></i> Step Status</h5>
+				<div id="stepStatusContent"></div>
+			</div>
+		</div>
+		<div class="col-md-7">
 			<!-- MT3 Packet Sender -->
 			<div id="mt3PacketSender" class="mb-3">
 				<div class="bg-primary text-white p-2">
@@ -235,193 +254,10 @@
 				</button>
 			</div>
 			
-			<div class="bg-primary text-white p-2 mb-3 mt-4 scroll-to-status-btn" id="scrollToStatusBtn" title="Click to scroll to step status">
-				<strong>MIDI 2.0 Setup Steps</strong>
-			</div>
-			<div class="btn-group-vertical" role="group" style="width: 100%;">
-				<button id="step1Button" type="button" class="btn btn-outline-primary btn-lg mb-2" 
-						data-tooltip="tooltip" title="Step 1: Connect Devices - Get Transport layer device descriptors">
-					<i class="fas fa-plug"></i> Step 1: Connect Devices
-				</button>
-				<button id="step2Button" type="button" class="btn btn-outline-primary btn-lg mb-2" 
-						data-tooltip="tooltip" title="Step 2: UMP Endpoint Discovery - Endpoint Discovery, Device Identity, etc.">
-					<i class="fas fa-search"></i> Step 2: UMP Endpoint Discovery
-				</button>
-				<button id="step3Button" type="button" class="btn btn-outline-primary btn-lg mb-2" 
-						data-tooltip="tooltip" title="Step 3: Select Protocol - Stream Configuration Request/Notification">
-					<i class="fas fa-cogs"></i> Step 3: Select Protocol
-				</button>
-				<button id="step4Button" type="button" class="btn btn-outline-primary btn-lg mb-2" 
-						data-tooltip="tooltip" title="Step 4: Function Blocks Discovery - Function Block Discovery, Info, Name">
-					<i class="fas fa-puzzle-piece"></i> Step 4: Function Blocks Discovery
-				</button>
-				<button id="step5Button" type="button" class="btn btn-outline-primary btn-lg mb-2" 
-						data-tooltip="tooltip" title="Step 5: MIDI-CI Discovery - MIDI-CI Discovery and Reply">
-					<i class="fas fa-handshake"></i> Step 5: MIDI-CI Discovery
-				</button>
-				<button id="step6Button" type="button" class="btn btn-outline-primary btn-lg mb-2" 
-						data-tooltip="tooltip" title="Step 6: Use MIDI-CI - Profile Configuration, Property Exchange, Process Inquiry">
-					<i class="fas fa-exchange-alt"></i> Step 6: Use MIDI-CI
-				</button>
-				<button id="step7Button" type="button" class="btn btn-outline-primary btn-lg mb-2" 
-						data-tooltip="tooltip" title="Step 7: Use MIDI - System Messages, Channel Voice Messages">
-					<i class="fas fa-music"></i> Step 7: Use MIDI
-				</button>
-			</div>
-			
-			<!-- Step Status (moved here, below step buttons) -->
-			<div id="stepStatus" class="alert alert-info mt-3" style="display: none; max-width: 100%;">
-				<h5><i class="fas fa-info-circle"></i> Step Status</h5>
-				<div id="stepStatusContent"></div>
-			</div>
-		</div>
-		<div class="col-md-7">
-			<div id="debugPanel" class="show">
-				<div class="bg-primary text-white p-2">
-					<strong>Debug</strong>
-				</div>
-				<div class="p-2">
-					<ul class="nav nav-tabs" id="debugTab" role="tablist">
-						<li class="nav-item">
-							<a class="nav-link active" id="sysex-tab" data-toggle="tab" href="#sysex" role="tab"
-							   aria-selected="true">SysEx7</a>
-						</li>
-						<li class="nav-item">
-							<a class="nav-link" id="ump-tab" data-toggle="tab" href="#ump" role="tab" aria-selected="false">
-								UMP
-							</a>
-						</li>
-						<li class="nav-item">
-							<a class="nav-link" id="pe-tab" data-toggle="tab" href="#pe" role="tab" aria-selected="false">
-								Property Exchange
-							</a>
-						</li>
-						<li class="nav-item">
-							<a class="nav-link" id="warn-tab" data-toggle="tab" href="#warn" role="tab" aria-selected="false">
-								Warnings <span id="warnNotif" class="badge badge-warning"></span>
-							</a>
-						</li>
-						<li class="nav-item">
-							<a class="nav-link" id="error-tab" data-toggle="tab" href="#error" role="tab" aria-selected="false">
-								Errors <span id="errNotif" class="badge badge-danger"></span>
-							</a>
-						</li>
-						<li class="nav-item">
-							<a class="nav-link" data-ipcmsg="getDebugFile" href="#" style="right: 80px; position: absolute;"
-							   aria-selected="false">Download Log</a>
-						</li>
-						<li class="nav-item">
-							<a class="nav-link" id="help" href="#" style="right: 0; position: absolute;"
-							   data-ipcmsg="showHelp" data-xdata="debug" aria-selected="false">Help</a>
-						</li>
-					</ul>
-					<div class="tab-content" id="debugTabContent">
-						<div class="tab-pane fade show active" id="sysex" role="tabpanel">
-							<table class="table table-sm table-striped">
-								<thead>
-								<tr>
-									<th scope="col">Device</th>
-									<th scope="col">Group</th>
-									<th scope="col">Time</th>
-									<th scope="col">i/o</th>
-									<th scope="col">
-										<div style="text-align: right">
-											<button type="button"
-													class="bg-white btn btn-alert btn-sm emptyTable"
-													style=""
-													data-logtype="sysex"
-											>Clear</button>
-										</div>
-									</th>
-								</tr>
-								</thead>
-								<tbody>
-								</tbody>
-							</table>
-						</div>
-						<div class="tab-pane fade" id="ump" role="tabpanel">
-							<table class="table table-sm table-striped">
-								<thead>
-								<tr>
-									<th scope="col">Device</th>
-									<th scope="col">Time</th>
-									<th scope="col">i/o</th>
-									<th scope="col"><div style="text-align: right">
-										<button type="button"
-												class="bg-white btn btn-alert btn-sm emptyTable"
-												style=""
-												data-logtype="ump"
-										>Clear</button>
-									</div></th>
-								</tr>
-								</thead>
-								<tbody>
-								</tbody>
-							</table>
-						</div>
-						<div class="tab-pane fade" id="pe" role="tabpanel">
-							<table class="table table-sm table-striped">
-								<thead>
-								<tr>
-									<th scope="col">Device</th>
-									<th scope="col">Group</th>
-									<th scope="col">Time</th>
-									<th scope="col">i/o</th>
-									<th scope="col"><div style="text-align: right">
-										<button type="button"
-												class="bg-white btn btn-alert btn-sm emptyTable"
-												style=""
-												data-logtype="pe"
-										>Clear</button>
-									</div></th>
-								</tr>
-								</thead>
-								<tbody>
-								</tbody>
-							</table>
-						</div>
-						<div class="tab-pane fade" id="warn" role="tabpanel">
-							<table class="table table-sm table-striped">
-								<thead>
-								<tr>
-									<th scope="col">Device</th>
-									<th scope="col">Time</th>
-									<th scope="col">i/o</th>
-									<th scope="col"><div style="text-align: right">
-										<button type="button"
-												class="bg-white btn btn-alert btn-sm emptyTable"
-												style=""
-												data-logtype="warn"
-										>Clear</button>
-									</div></th>
-								</tr>
-								</thead>
-								<tbody>
-								</tbody>
-							</table>
-						</div>
-						<div class="tab-pane fade" id="error" role="tabpanel">
-							<table class="table table-sm table-striped">
-								<thead>
-								<tr>
-									<th scope="col">Device</th>
-									<th scope="col">Time</th>
-									<th scope="col">i/o</th>
-									<th scope="col"><div style="text-align: right">
-										<button type="button"
-												class="bg-white btn btn-alert btn-sm emptyTable"
-												style=""
-												data-logtype="error"
-										>Clear</button>
-									</div></th>
-								</tr>
-								</thead>
-								<tbody>
-								</tbody>
-							</table>
-						</div>
-					</div>
-				</div>
+			<!-- MT3 Packet Sender Status (below the sender) -->
+			<div id="mt3Status" class="alert alert-info mt-3" style="display: none; max-width: 100%;">
+				<h5><i class="fas fa-info-circle"></i> Status</h5>
+				<div id="mt3StatusContent"></div>
 			</div>
 		</div>
 	</div>

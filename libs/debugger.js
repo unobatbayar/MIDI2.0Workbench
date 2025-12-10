@@ -94,7 +94,8 @@ exports.msg= function(type,data,dir,umpDev,group,errors,warnings) {
 	if(type==='ump'){
 		//debugActiveSenseClock
 		const mt = data[0] >>> 28;
-		if(mt===0x3 && !global.configSetting.debugUMPSysEx){
+		// Always show outgoing MT=3 (SysEx) messages, but filter incoming ones based on setting
+		if(mt===0x3 && !global.configSetting.debugUMPSysEx && dir === 'in'){
 			return;
 		}
 
